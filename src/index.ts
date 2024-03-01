@@ -1,10 +1,23 @@
 export type IProp = Record<string, any>;
 
-const _log = (obj: any) => console.dir(obj, { depth: null, colors: true });
-
 export class VNode {
-  static of(list: Array<any[]>): VNode[] {
-    return list.map(item => new VNode(item[0], item[1], item.slice(2)));
+  static of<P extends IProp>(Type: ComponentType<P>, props: P = {} as any, ...children: VNode[]): VNode {
+    return new VNode(Type as any, props, children);
+  }
+
+  static cast(arg: any): VNode[] {
+    if (arg instanceof VNode) return [arg];
+
+    if (Array.isArray(arg)) {
+      const list: VNode[] = [];
+      for (const _cur of arg) {
+        list.push(...VNode.cast(_cur));
+      }
+
+      return list;
+    }
+
+    return [];
   }
 
   static walk(node: VNode, cb1?: (cur: VNode) => any, cb2?: (cur: VNode) => any) {
@@ -17,28 +30,18 @@ export class VNode {
     cb2?.(node);
   }
 
-  _instance: Component | null = null;
+  _ins: Component | null = null;
   _parent: VNode | null = null;
 
   constructor(
-    readonly type: ComponentConstructor,
+    readonly Type: ComponentType,
     readonly props: IProp,
     readonly children: VNode[]
   ) {}
-
-  toString(indent = 0): string {
-    const _t = '  '.repeat(indent);
-
-    // prettier-ignore
-    return `${_t}<${this.type.name}>
-${Object.entries(this.props).map(([k, v]) => _t + `${k}: ${JSON.stringify(v)}`).join('\n')}
-${this.children.map(c => _t + c.toString(indent + 1)).join('\n')}
-`;
-  }
 }
 
-export interface ComponentConstructor {
-  new <P extends IProp = any>(host: Host, props: P, context: any): Component;
+export interface ComponentType<P extends IProp = any> {
+  new (host: Host, props: P, context: any): Component;
 }
 
 export class Component<P extends IProp = any, S extends Record<string, any> = any> {
@@ -48,6 +51,7 @@ export class Component<P extends IProp = any, S extends Record<string, any> = an
 
   _host: Host;
   _vnode: VNode | null = null;
+  _lastState: S = {} as any;
 
   constructor(host: Host, props: P, context: any) {
     this._host = host;
@@ -55,21 +59,26 @@ export class Component<P extends IProp = any, S extends Record<string, any> = an
     this.context = context;
   }
 
-  setup() {}
-  update(_changed: Partial<P>) {}
-  destroy() {}
-
-  forceRender() {
-    if (!this._vnode) throw new Error('vnode is not ready');
-    this._host.incrementRender(this._vnode);
+  forceUpdate() {
+    if (!this._vnode) throw new Error('this._vnode not exists');
+    this._host.incrementalUpdate(this._vnode);
   }
 
   setState(next: Partial<S>) {
-    Object.assign(this.state, next);
-    this.forceRender();
+    this._lastState = this.state;
+
+    // @ts-expect-error
+    this.state = { ...this.state, ...next };
+
+    this.forceUpdate();
   }
 
-  render(): Array<any[]> {
+  onInit() {}
+  onDestroy() {}
+
+  onUpdate(_prevProp: Partial<P>, _prevState: Partial<S>) {}
+
+  process(): any {
     return [];
   }
 }
@@ -77,111 +86,111 @@ export class Component<P extends IProp = any, S extends Record<string, any> = an
 export class Host {
   root: VNode | null = null;
 
-  private _do_setup(node: VNode) {
-    if (node._instance) throw new Error('instance already exists');
+  private _doInitRecursively(node: VNode) {
+    if (node._ins) throw new Error('instance already exists');
 
-    const _comp = (node._instance = new node.type(this, node.props, null));
+    node._ins = new node.Type(this, node.props, null);
+
+    const _comp = node._ins;
     _comp._vnode = node;
 
-    _comp.setup();
+    _comp.onInit();
+    _comp.onUpdate({}, _comp._lastState);
 
-    const _children = VNode.of(_comp.render());
-    for (const _child of _children) {
+    for (const _child of VNode.cast(_comp.process())) {
       _child._parent = node;
       node.children.push(_child);
+
+      this._doInitRecursively(_child);
     }
   }
 
-  private _do_destroy(node: VNode) {
-    if (!node._instance) throw new Error('instance is null');
+  private _doDestroyRecursively(node: VNode) {
+    if (!node._ins) return;
 
-    node._instance.destroy();
-    node._instance._vnode = null;
-    node._instance = null;
+    for (const _child of node.children) {
+      this._doDestroyRecursively(_child);
+    }
+
+    node._ins.onDestroy();
+    node._ins._vnode = null;
+    node._ins = null;
+    node._parent = null;
+    node.children.length = 0;
   }
 
-  // 全量构建
-  render(node: any[]) {
-    const [next] = VNode.of([node]);
-
+  update(node: VNode) {
+    // 递归卸载
     if (this.root) {
-      // 全部卸载
-      VNode.walk(this.root, undefined, _cur => this._do_destroy(_cur));
+      this._doDestroyRecursively(this.root);
       this.root = null;
     }
 
-    // 全部创建
-    VNode.walk(next, _cur => this._do_setup(_cur));
-    this.root = next;
+    // 递归创建
+    this.root = node;
+    this._doInitRecursively(this.root);
   }
 
-  // 增量构建
-  incrementRender(current: VNode) {
-    if (!this.root) throw new Error('root is null');
+  incrementalUpdate(node: VNode) {
+    if (!this.root) throw new Error('root not exists');
+    if (!node._ins) throw new Error('node._ins not exists');
 
-    const _comp = current._instance;
-    if (!_comp) throw new Error('instance is null');
+    const newChildren = VNode.cast(node._ins.process());
 
-    const nodesA = current.children;
-    const nodesB = VNode.of(_comp.render());
-
-    this._incrementRenderList(nodesA, nodesB);
+    this._diff(node.children, newChildren);
   }
 
-  private _incrementRenderList(nodesA: VNode[], nodesB: VNode[]) {
-    const maxLength = Math.max(nodesA.length, nodesB.length);
+  destroy() {
+    if (!this.root) return;
+    this._doDestroyRecursively(this.root);
+  }
+
+  private _diff(prevList: VNode[], nextList: VNode[]) {
+    const maxLength = Math.max(prevList.length, nextList.length);
 
     for (let i = 0; i < maxLength; i++) {
-      const a = nodesA[i];
-      const b = nodesB[i];
+      const prev = prevList[i];
+      const next = nextList[i];
 
-      if (a && b) {
+      if (prev && next) {
         // 类型相同，递归更新
-        if (a.type === b.type) {
-          if (!a._instance) throw new Error('instance is not ready');
-          if (!b._instance) b._instance = a._instance;
+        if (prev.Type === next.Type) {
+          if (!prev._ins) throw new Error('prev._ins not exists');
+          if (!next._ins) next._ins = prev._ins; // 传递实例
 
-          // diff props
-          const _allPropKeys = new Set([...Object.keys(a.props), ...Object.keys(b.props)]);
-          const _changedProp: IProp = {};
-          for (const _k of _allPropKeys) {
-            if (a.props[_k] !== b.props[_k]) _changedProp[_k] = b.props[_k];
-          }
+          const _comp = next._ins;
 
           // 更新 props
-          if (Object.keys(_changedProp).length) {
-            const _comp = b._instance;
-            if (!_comp) throw new Error('instance is null');
+          // @ts-expect-error
+          _comp.props = next.props;
 
-            Object.assign(_comp.props, _changedProp);
-            _comp.update(_changedProp);
+          // rerender children
+          _comp.onUpdate(prev.props, _comp._lastState);
 
-            // rerender children
-            b.children.length = 0;
-            for (const __c of VNode.of(_comp.render())) {
-              __c._parent = b;
-              b.children.push(__c);
-            }
+          next.children.length = 0;
+          for (const _child of VNode.cast(_comp.process())) {
+            _child._parent = next;
+            next.children.push(_child);
           }
 
-          this._incrementRenderList(a.children, b.children);
+          this._diff(prev.children, next.children);
         }
 
         // 类型不同，递归卸载 a，递归创建 b
         else {
-          VNode.walk(a, undefined, cur => this._do_destroy(cur));
-          VNode.walk(b, _cur => this._do_setup(_cur));
+          this._doDestroyRecursively(prev);
+          this._doInitRecursively(next);
         }
       }
 
       // 递归卸载
-      else if (a) {
-        VNode.walk(a, undefined, cur => this._do_destroy(cur));
+      else if (prev) {
+        this._doDestroyRecursively(prev);
       }
 
       // 递归创建
-      else if (b) {
-        VNode.walk(b, _cur => this._do_setup(_cur));
+      else if (next) {
+        this._doInitRecursively(next);
       }
     }
   }
