@@ -1,73 +1,74 @@
 import { Component, Host, VNode } from '../src';
 
-it('simple', () => {
-  const _setupList: string[] = [];
-  const _destroyList: string[] = [];
+const descComp = (comp: Component, lifecycle: string, logPropAndState?: boolean): string => {
+  let s = comp.constructor.name + '.' + lifecycle;
+  if (logPropAndState) s += `.[${JSON.stringify(comp.props)}, ${JSON.stringify(comp.state)}]`;
+  return s;
+};
 
-  class Child extends Component {
-    onInit(): void {
-      _setupList.push('child');
-    }
+it('lifecycle', () => {
+  let rootRef: Article = null as any;
 
-    onDestroy(): void {
-      _destroyList.push('child');
-    }
-  }
+  const timelines: string[] = [];
 
-  class App extends Component {
-    onInit(): void {
-      _setupList.push('app');
-    }
-
-    onDestroy(): void {
-      _destroyList.push('app');
-    }
-
-    process() {
-      return VNode.of(Child, { name: this.props.name + '_to' });
-    }
-  }
-
-  const host = new Host();
-  host.update(VNode.of(App, { name: 'Jam' }));
-  expect(_setupList).toEqual(['app', 'child']);
-
-  host.destroy();
-  expect(_destroyList).toEqual(['child', 'app']);
-});
-
-it('simple2', () => {
-  let appRef: App = null as any;
-  const _renderList1: string[] = [];
-  const _renderList2: string[] = [];
+  class Tag extends Component {}
 
   class Header extends Component {
+    onInit(): void {
+      timelines.push(descComp(this, 'onInit'));
+    }
+
+    onUpdated(_prevProp: Partial<any>, _prevState: Partial<any>): void {
+      timelines.push(descComp(this, 'onUpdated') + ` <<< [${JSON.stringify(_prevProp)}, ${JSON.stringify(_prevState)}]`);
+    }
+
+    onDestroy(): void {
+      timelines.push(descComp(this, 'onDestroy'));
+    }
+
     process() {
-      _renderList1.push(this.props.name);
+      timelines.push(descComp(this, 'process', true));
       return [];
     }
   }
 
-  class App extends Component {
-    state = { name: '' };
+  class Article extends Component {
+    state = { color: 'red' };
 
     onInit(): void {
-      appRef = this;
+      rootRef = this;
+      timelines.push(descComp(this, 'onInit'));
+    }
+
+    onUpdated(_prevProp: Partial<any>, _prevState: Partial<any>): void {
+      timelines.push(descComp(this, 'onUpdated') + ` <<< [${JSON.stringify(_prevProp)}, ${JSON.stringify(_prevState)}]`);
+    }
+
+    onDestroy(): void {
+      timelines.push(descComp(this, 'onDestroy'));
     }
 
     process() {
-      _renderList2.push(this.state.name);
-      return VNode.of(Header, { name: '_p_' + this.state.name });
+      timelines.push(descComp(this, 'process', true));
+
+      return VNode.of(
+        Header,
+        {
+          ...this.state,
+          ...this.props,
+          title: 'TODAY:' + this.props.title,
+        },
+        VNode.of(Tag),
+        VNode.of(Tag)
+      );
     }
   }
 
   const host = new Host();
-  host.update(VNode.of(App));
+  host.update(VNode.of(Article, { title: 'Say hi', content: 'Jam' }));
+  host.update(VNode.of(Article, { title: 'Say hello', content: 'Tom' }));
 
-  if (!appRef) throw new Error('appRef is null');
+  rootRef.setState({ color: 'blue' });
 
-  appRef.setState({ name: 'Jam' });
-
-  expect(_renderList1).toEqual(['_p_', '_p_Jam']);
-  expect(_renderList2).toEqual(['', 'Jam']);
+  expect(timelines).toMatchSnapshot();
 });

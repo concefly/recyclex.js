@@ -1,0 +1,24 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`lifecycle 1`] = `
+[
+  "Article.onInit",
+  "Article.process.[{"title":"Say hi","content":"Jam","children":[]}, {"color":"red"}]",
+  "Header.onInit",
+  "Header.process.[{"color":"red","title":"TODAY:Say hi","content":"Jam","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
+  "Header.onUpdated <<< [{}, {}]",
+  "Article.onUpdated <<< [{}, {}]",
+  "Header.onDestroy",
+  "Article.onDestroy",
+  "Article.onInit",
+  "Article.process.[{"title":"Say hello","content":"Tom","children":[]}, {"color":"red"}]",
+  "Header.onInit",
+  "Header.process.[{"color":"red","title":"TODAY:Say hello","content":"Tom","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
+  "Header.onUpdated <<< [{}, {}]",
+  "Article.onUpdated <<< [{}, {}]",
+  "Article.process.[{"title":"Say hello","content":"Tom","children":[]}, {"color":"blue"}]",
+  "Header.process.[{"color":"red","title":"TODAY:Say hello","content":"Tom","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
+  "Header.onUpdated <<< [{"color":"red","title":"TODAY:Say hello","content":"Tom","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
+  "Article.onUpdated <<< [{"title":"Say hello","content":"Tom","children":[]}, {"color":"red"}]",
+]
+`;

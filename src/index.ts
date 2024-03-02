@@ -2,7 +2,7 @@ export type IProp = Record<string, any>;
 
 export class VNode {
   static of<P extends IProp>(Type: ComponentType<P>, props: P = {} as any, ...children: VNode[]): VNode {
-    return new VNode(Type as any, props, children);
+    return new VNode(Type as any, { ...props, children });
   }
 
   static cast(arg: any): VNode[] {
@@ -31,12 +31,11 @@ export class VNode {
   }
 
   _ins: Component | null = null;
-  _parent: VNode | null = null;
 
   constructor(
     readonly Type: ComponentType,
     readonly props: IProp,
-    readonly children: VNode[]
+    readonly children: VNode[] = []
   ) {}
 }
 
@@ -61,7 +60,7 @@ export class Component<P extends IProp = any, S extends Record<string, any> = an
 
   forceUpdate() {
     if (!this._vnode) throw new Error('this._vnode not exists');
-    this._host.incrementalUpdate(this._vnode);
+    this._host.incrementalUpdate(this._vnode, this.props);
   }
 
   setState(next: Partial<S>) {
@@ -76,7 +75,7 @@ export class Component<P extends IProp = any, S extends Record<string, any> = an
   onInit() {}
   onDestroy() {}
 
-  onUpdate(_prevProp: Partial<P>, _prevState: Partial<S>) {}
+  onUpdated(_prevProp: Partial<P>, _prevState: Partial<S>) {}
 
   process(): any {
     return [];
@@ -95,14 +94,16 @@ export class Host {
     _comp._vnode = node;
 
     _comp.onInit();
-    _comp.onUpdate({}, _comp._lastState);
+    const _lastState = _comp._lastState;
 
-    for (const _child of VNode.cast(_comp.process())) {
-      _child._parent = node;
-      node.children.push(_child);
+    // @ts-expect-error
+    node.children = VNode.cast(_comp.process());
 
+    for (const _child of node.children) {
       this._doInitRecursively(_child);
     }
+
+    _comp.onUpdated({}, _lastState);
   }
 
   private _doDestroyRecursively(node: VNode) {
@@ -115,7 +116,6 @@ export class Host {
     node._ins.onDestroy();
     node._ins._vnode = null;
     node._ins = null;
-    node._parent = null;
     node.children.length = 0;
   }
 
@@ -131,26 +131,28 @@ export class Host {
     this._doInitRecursively(this.root);
   }
 
-  incrementalUpdate(node: VNode) {
+  incrementalUpdate(node: VNode, newProps: IProp) {
     if (!this.root) throw new Error('root not exists');
     if (!node._ins) throw new Error('node._ins not exists');
 
+    const _prevProp = node._ins.props;
+    const _prevState = node._ins._lastState;
+
+    const oldChildren = node.children;
+
+    // 更新 props
+    // @ts-expect-error
+    node._ins.props = newProps;
     const newChildren = VNode.cast(node._ins.process());
 
-    this._diff(node.children, newChildren);
-  }
+    // @ts-expect-error
+    node.children = newChildren;
 
-  destroy() {
-    if (!this.root) return;
-    this._doDestroyRecursively(this.root);
-  }
-
-  private _diff(prevList: VNode[], nextList: VNode[]) {
-    const maxLength = Math.max(prevList.length, nextList.length);
+    const maxLength = Math.max(oldChildren.length, newChildren.length);
 
     for (let i = 0; i < maxLength; i++) {
-      const prev = prevList[i];
-      const next = nextList[i];
+      const prev = oldChildren[i];
+      const next = newChildren[i];
 
       if (prev && next) {
         // 类型相同，递归更新
@@ -158,22 +160,7 @@ export class Host {
           if (!prev._ins) throw new Error('prev._ins not exists');
           if (!next._ins) next._ins = prev._ins; // 传递实例
 
-          const _comp = next._ins;
-
-          // 更新 props
-          // @ts-expect-error
-          _comp.props = next.props;
-
-          // rerender children
-          _comp.onUpdate(prev.props, _comp._lastState);
-
-          next.children.length = 0;
-          for (const _child of VNode.cast(_comp.process())) {
-            _child._parent = next;
-            next.children.push(_child);
-          }
-
-          this._diff(prev.children, next.children);
+          this.incrementalUpdate(next, prev.props); // 递归更新
         }
 
         // 类型不同，递归卸载 a，递归创建 b
@@ -193,5 +180,12 @@ export class Host {
         this._doInitRecursively(next);
       }
     }
+
+    node._ins.onUpdated(_prevProp, _prevState);
+  }
+
+  destroy() {
+    if (!this.root) return;
+    this._doDestroyRecursively(this.root);
   }
 }
