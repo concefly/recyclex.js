@@ -1,7 +1,13 @@
-export type IProp = Record<string, any>;
+export type IProps = Record<string, any>;
+export type ICompProps<P extends IProps> = P & { children: VNode[]; key: any };
+
+export type ISnapshot<P extends IProps, S extends Record<string, any>> = {
+  props: Partial<P>;
+  state: Partial<S>;
+};
 
 export class VNode {
-  static of<P extends IProp>(Type: ComponentType<P>, props: P = {} as any, ...children: VNode[]): VNode {
+  static of<P extends IProps>(Type: ComponentType<P>, props: P, ...children: VNode[]): VNode {
     return new VNode(Type as any, { ...props, children });
   }
 
@@ -34,16 +40,16 @@ export class VNode {
 
   constructor(
     readonly Type: ComponentType,
-    readonly props: IProp,
+    readonly props: IProps,
     readonly children: VNode[] = []
   ) {}
 }
 
-export interface ComponentType<P extends IProp = any> {
+export interface ComponentType<P extends IProps = any> {
   new (host: Host, props: P, context: any): Component;
 }
 
-export class Component<P extends IProp = any, S extends Record<string, any> = any> {
+export class Component<P extends IProps = any, S extends Record<string, any> = any> {
   readonly props: P;
   readonly context: any;
   readonly state: S = {} as any;
@@ -75,7 +81,8 @@ export class Component<P extends IProp = any, S extends Record<string, any> = an
   onInit() {}
   onDestroy() {}
 
-  onUpdated(_prevProp: Partial<P>, _prevState: Partial<S>) {}
+  onBeforeProcess(_snap: ISnapshot<P, S>) {}
+  onAfterProcess(_snap: ISnapshot<P, S>) {}
 
   process(): any {
     return [];
@@ -94,7 +101,9 @@ export class Host {
     _comp._vnode = node;
 
     _comp.onInit();
-    const _lastState = _comp._lastState;
+    const _snap = { props: {}, state: _comp._lastState };
+
+    _comp.onBeforeProcess(_snap);
 
     // @ts-expect-error
     node.children = VNode.cast(_comp.process());
@@ -103,7 +112,7 @@ export class Host {
       this._doInitRecursively(_child);
     }
 
-    _comp.onUpdated({}, _lastState);
+    _comp.onAfterProcess(_snap);
   }
 
   private _doDestroyRecursively(node: VNode) {
@@ -131,18 +140,20 @@ export class Host {
     this._doInitRecursively(this.root);
   }
 
-  incrementalUpdate(node: VNode, newProps: IProp) {
+  incrementalUpdate(node: VNode, newProps: IProps) {
     if (!this.root) throw new Error('root not exists');
     if (!node._ins) throw new Error('node._ins not exists');
 
     const _prevProp = node._ins.props;
     const _prevState = node._ins._lastState;
-
-    const oldChildren = node.children;
+    const _snap = { props: _prevProp, state: _prevState };
 
     // 更新 props
     // @ts-expect-error
     node._ins.props = newProps;
+    node._ins.onBeforeProcess(_snap);
+
+    const oldChildren = node.children;
     const newChildren = VNode.cast(node._ins.process());
 
     // @ts-expect-error
@@ -160,7 +171,7 @@ export class Host {
           if (!prev._ins) throw new Error('prev._ins not exists');
           if (!next._ins) next._ins = prev._ins; // 传递实例
 
-          this.incrementalUpdate(next, prev.props); // 递归更新
+          this.incrementalUpdate(next, next.props); // 递归更新
         }
 
         // 类型不同，递归卸载 a，递归创建 b
@@ -181,7 +192,7 @@ export class Host {
       }
     }
 
-    node._ins.onUpdated(_prevProp, _prevState);
+    node._ins.onAfterProcess(_snap);
   }
 
   destroy() {
