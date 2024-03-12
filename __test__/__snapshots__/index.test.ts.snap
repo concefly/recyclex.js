@@ -29,6 +29,7 @@ exports[`life cycle 1`] = `
   "  <B> onUpdate text=Jane-red,",
   "  <B> onAfterUpdate text=Jane-red,",
   "<A> onAfterUpdate name=Jane, color=red,",
+  "  <B> onDestroy text=Jane-red,",
   "<A> onDestroy name=Jane, color=red,",
 ]
 `;

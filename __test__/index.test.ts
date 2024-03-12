@@ -115,7 +115,7 @@ it('life cycle', () => {
   registry.register('A', A);
   registry.register('B', B);
 
-  const host = new Host(registry, 'A');
+  const host = new Host('A', registry);
   host.flush({});
   expect(timelines).toMatchSnapshot('with initial values');
 
@@ -140,7 +140,7 @@ it('equals check', () => {
   }
 
   registry.register('A', A);
-  const host = new Host(registry, 'A');
+  const host = new Host('A', registry);
 
   host.flush({ name: 'TOM' });
   host.flush({ name: 'JANE' });

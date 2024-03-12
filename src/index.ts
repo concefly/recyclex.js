@@ -61,6 +61,19 @@ export function Register(name: string, registry = ComponentRegistry.Default) {
   };
 }
 
+function _getComponentMeta(Type: ComponentType): IComponentMeta | null {
+  // 递归获取父类的 meta
+  const _cur: IComponentMeta = Type.prototype._meta;
+  if (!_cur) return null;
+
+  const _parent = _getComponentMeta(Object.getPrototypeOf(Type.prototype).constructor);
+  if (!_parent) return _cur;
+
+  return {
+    properties: new Map([..._parent.properties, ..._cur.properties]),
+  };
+}
+
 function _defaultEquals(a: any, b: any) {
   return a === b;
 }
@@ -110,13 +123,10 @@ export class Component {
   get meta(): IComponentMeta {
     if (this._metaCache) return this._metaCache;
 
-    const proto = Object.getPrototypeOf(this);
-
-    const curMeta: IComponentMeta = proto._meta;
-    const parentMeta: IComponentMeta | undefined = Object.getPrototypeOf(proto)._meta;
-
     // merge parent meta
-    const meta = { ...parentMeta, ...curMeta, properties: new Map([...(parentMeta?.properties || []), ...curMeta.properties]) };
+    const meta = _getComponentMeta(this.constructor as any);
+    if (!meta) throw new Error('meta not found');
+
     this._metaCache = meta;
 
     return meta;
@@ -188,6 +198,13 @@ export class Component {
   }
 
   private _doDestroy() {
+    for (const node of this._lastNodes) {
+      if (node._ins) {
+        node._ins._doDestroy();
+        node._ins = null;
+      }
+    }
+
     this._changes.clear();
     this._metaCache = null;
     this._lastNodes.length = 0;
@@ -257,7 +274,7 @@ export class Host {
   private _registry: ComponentRegistry;
   private _comp: Component;
 
-  constructor(registry: ComponentRegistry, root: string) {
+  constructor(root: string, registry = ComponentRegistry.Default) {
     this._registry = registry;
 
     const Type = registry.get(root);
