@@ -1,30 +1,47 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`lifecycle 1`] = `
+exports[`equals check 1`] = `
 [
-  "Article.onInit",
-  "Article.onBeforeProcess <<< [{}, {}]",
-  "Article.process.[{"title":"Say hi","content":"Jam","children":[]}, {"color":"red"}]",
-  "Header.onInit",
-  "Header.onBeforeProcess <<< [{}, {}]",
-  "Header.process.[{"color":"red","title":"TODAY:Say hi","content":"Jam","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
-  "Header.onAfterProcess <<< [{}, {}]",
-  "Article.onAfterProcess <<< [{}, {}]",
-  "Header.onDestroy",
-  "Article.onDestroy",
-  "Article.onInit",
-  "Article.onBeforeProcess <<< [{}, {}]",
-  "Article.process.[{"title":"Say hello","content":"Tom","children":[]}, {"color":"red"}]",
-  "Header.onInit",
-  "Header.onBeforeProcess <<< [{}, {}]",
-  "Header.process.[{"color":"red","title":"TODAY:Say hello","content":"Tom","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
-  "Header.onAfterProcess <<< [{}, {}]",
-  "Article.onAfterProcess <<< [{}, {}]",
-  "Article.onBeforeProcess <<< [{"title":"Say hello","content":"Tom","children":[]}, {"color":"red"}]",
-  "Article.process.[{"title":"Say hello","content":"Tom","children":[]}, {"color":"blue"}]",
-  "Header.onBeforeProcess <<< [{"color":"red","title":"TODAY:Say hello","content":"Tom","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
-  "Header.process.[{"color":"blue","title":"TODAY:Say hello","content":"Tom","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
-  "Header.onAfterProcess <<< [{"color":"red","title":"TODAY:Say hello","content":"Tom","children":[{"props":{"children":[]},"children":[],"_ins":null},{"props":{"children":[]},"children":[],"_ins":null}]}, {}]",
-  "Article.onAfterProcess <<< [{"title":"Say hello","content":"Tom","children":[]}, {"color":"red"}]",
+  "<A> receive: name=TOM,",
+  "<A> receive: name=JANE,",
+]
+`;
+
+exports[`life cycle 1`] = `
+[
+  "<A> onInit name=Jam, color=red,",
+  "<A> onBeforeUpdate name=Jam, color=red,",
+  "<A> onUpdate name=Jam, color=red,",
+  "  <B> onInit text=Jam-red,",
+  "  <B> onBeforeUpdate text=Jam-red,",
+  "  <B> onUpdate text=Jam-red,",
+  "  <B> onAfterUpdate text=Jam-red,",
+  "<A> onAfterUpdate name=Jam, color=red,",
+  "<A> onBeforeUpdate name=Tom, color=red,",
+  "<A> onUpdate name=Tom, color=red,",
+  "  <B> onBeforeUpdate text=Tom-red,",
+  "  <B> onUpdate text=Tom-red,",
+  "  <B> onAfterUpdate text=Tom-red,",
+  "<A> onAfterUpdate name=Tom, color=red,",
+  "<A> onBeforeUpdate name=Jane, color=red,",
+  "<A> onUpdate name=Jane, color=red,",
+  "  <B> onBeforeUpdate text=Jane-red,",
+  "  <B> onUpdate text=Jane-red,",
+  "  <B> onAfterUpdate text=Jane-red,",
+  "<A> onAfterUpdate name=Jane, color=red,",
+  "<A> onDestroy name=Jane, color=red,",
+]
+`;
+
+exports[`life cycle: with initial values 1`] = `
+[
+  "<A> onInit name=Jam, color=red,",
+  "<A> onBeforeUpdate name=Jam, color=red,",
+  "<A> onUpdate name=Jam, color=red,",
+  "  <B> onInit text=Jam-red,",
+  "  <B> onBeforeUpdate text=Jam-red,",
+  "  <B> onUpdate text=Jam-red,",
+  "  <B> onAfterUpdate text=Jam-red,",
+  "<A> onAfterUpdate name=Jam, color=red,",
 ]
 `;

@@ -1,90 +1,150 @@
-import { Component, Host, VNode } from '../src';
+import { Component, Host, Prop, ComponentRegistry, State, VNode } from '../src';
 
-const descComp = (comp: Component, lifecycle: string, logPropAndState?: boolean): string => {
-  let s = comp.constructor.name + '.' + lifecycle;
-  if (logPropAndState) s += `.[${JSON.stringify(comp.props)}, ${JSON.stringify(comp.state)}]`;
-  return s;
-};
+class TestComp extends Component {
+  stringify(desc: string): string {
+    let text = `<${this.constructor.name}> ${desc}`;
+    const meta = this.meta;
 
-it('lifecycle', () => {
-  let rootRef: Article = null as any;
+    for (const [key] of meta.properties) {
+      text += ` ${key}=${(this as any)[key] + ''},`;
+    }
 
+    return text;
+  }
+}
+
+it('meta data', () => {
+  class A extends Component {
+    @Prop()
+    name = 'A';
+
+    @State()
+    color = 'red';
+  }
+
+  class B extends A {
+    @Prop()
+    name2 = 'B';
+
+    @State()
+    color2 = 'blue';
+  }
+
+  const a = new A(ComponentRegistry.Default);
+  const b = new B(ComponentRegistry.Default);
+
+  const aMeta = a.meta;
+  const bMeta = b.meta;
+
+  expect(aMeta).toEqual({
+    properties: new Map([
+      ['name', { type: 'prop' }],
+      ['color', { type: 'state' }],
+    ]),
+  });
+
+  expect(bMeta).toEqual({
+    properties: new Map([
+      ['name', { type: 'prop' }],
+      ['color', { type: 'state' }],
+      ['name2', { type: 'prop' }],
+      ['color2', { type: 'state' }],
+    ]),
+  });
+});
+
+it('life cycle', () => {
+  const registry = new ComponentRegistry();
   const timelines: string[] = [];
 
-  class Tag extends Component {}
+  class B extends TestComp {
+    @Prop()
+    text = 'x';
 
-  class Header extends Component {
     onInit(): void {
-      timelines.push(descComp(this, 'onInit'));
+      timelines.push('  ' + this.stringify('onInit'));
     }
 
-    onBeforeProcess(_snap: any): void {
-      const _prevProp = _snap.props;
-      const _prevState = _snap.state;
-      timelines.push(descComp(this, 'onBeforeProcess') + ` <<< [${JSON.stringify(_prevProp)}, ${JSON.stringify(_prevState)}]`);
+    onBeforeUpdate(): void {
+      timelines.push('  ' + this.stringify('onBeforeUpdate'));
     }
 
-    onAfterProcess(_snap: any): void {
-      const _prevProp = _snap.props;
-      const _prevState = _snap.state;
-      timelines.push(descComp(this, 'onAfterProcess') + ` <<< [${JSON.stringify(_prevProp)}, ${JSON.stringify(_prevState)}]`);
+    onAfterUpdate(): void {
+      timelines.push('  ' + this.stringify('onAfterUpdate'));
     }
 
-    onDestroy(): void {
-      timelines.push(descComp(this, 'onDestroy'));
-    }
-
-    process() {
-      timelines.push(descComp(this, 'process', true));
+    onUpdate(): VNode[] {
+      timelines.push('  ' + this.stringify('onUpdate'));
       return [];
     }
+
+    onDestroy(): void {
+      timelines.push('  ' + this.stringify('onDestroy'));
+    }
   }
 
-  class Article extends Component {
-    state = { color: 'red' };
+  class A extends TestComp {
+    @Prop()
+    name = 'Jam';
+
+    @State()
+    color = 'red';
 
     onInit(): void {
-      rootRef = this;
-      timelines.push(descComp(this, 'onInit'));
+      timelines.push(this.stringify('onInit'));
     }
 
-    onBeforeProcess(_snap: any): void {
-      const _prevProp = _snap.props;
-      const _prevState = _snap.state;
-      timelines.push(descComp(this, 'onBeforeProcess') + ` <<< [${JSON.stringify(_prevProp)}, ${JSON.stringify(_prevState)}]`);
+    onUpdate(): VNode[] {
+      timelines.push(this.stringify('onUpdate'));
+      return [VNode.of('B', { text: [this.name, this.color].join('-') })];
     }
 
-    onAfterProcess(_snap: any): void {
-      const _prevProp = _snap.props;
-      const _prevState = _snap.state;
-      timelines.push(descComp(this, 'onAfterProcess') + ` <<< [${JSON.stringify(_prevProp)}, ${JSON.stringify(_prevState)}]`);
+    onBeforeUpdate(): void {
+      timelines.push(this.stringify('onBeforeUpdate'));
+    }
+
+    onAfterUpdate(): void {
+      timelines.push(this.stringify('onAfterUpdate'));
     }
 
     onDestroy(): void {
-      timelines.push(descComp(this, 'onDestroy'));
-    }
-
-    process() {
-      timelines.push(descComp(this, 'process', true));
-
-      return VNode.of(
-        Header,
-        {
-          ...this.state,
-          ...this.props,
-          title: 'TODAY:' + this.props.title,
-        },
-        VNode.of(Tag, {}),
-        VNode.of(Tag, {})
-      );
+      timelines.push(this.stringify('onDestroy'));
     }
   }
 
-  const host = new Host();
-  host.update(VNode.of(Article, { title: 'Say hi', content: 'Jam' }));
-  host.update(VNode.of(Article, { title: 'Say hello', content: 'Tom' }));
+  registry.register('A', A);
+  registry.register('B', B);
 
-  rootRef.setState({ color: 'blue' });
+  const host = new Host(registry, 'A');
+  host.flush({});
+  expect(timelines).toMatchSnapshot('with initial values');
+
+  host.flush({ name: 'Tom' });
+  host.flush({ name: 'Jane' });
+  host.destroy();
+
+  expect(timelines).toMatchSnapshot();
+});
+
+it('equals check', () => {
+  const registry = new ComponentRegistry();
+  const timelines: string[] = [];
+
+  class A extends TestComp {
+    @Prop()
+    name = 'TOM';
+
+    onBeforeUpdate(): void {
+      timelines.push(this.stringify('receive:'));
+    }
+  }
+
+  registry.register('A', A);
+  const host = new Host(registry, 'A');
+
+  host.flush({ name: 'TOM' });
+  host.flush({ name: 'JANE' });
+  host.flush({ name: 'JANE' });
 
   expect(timelines).toMatchSnapshot();
 });
