@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { Component, Host, Prop, ComponentRegistry, State, VNode } from '../src';
 
 class TestComp extends Component {

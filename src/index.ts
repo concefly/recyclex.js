@@ -1,7 +1,7 @@
 export type IProps = Record<string, any>;
 
 export interface ComponentType {
-  new (registry: ComponentRegistry): Component;
+  new (registry: ComponentRegistry, context?: any): Component;
 }
 
 export interface IPropertyMeta {
@@ -55,7 +55,7 @@ export function State(def: Omit<IPropertyMeta, 'key' | 'type'> = {}) {
 }
 
 // class decorator
-export function Register(name: string, registry = ComponentRegistry.Default) {
+export function Register(name: keyof IComponentInfoMap, registry = ComponentRegistry.Default) {
   return function (constructor: ComponentType) {
     registry.register(name, constructor);
   };
@@ -79,8 +79,8 @@ function _defaultEquals(a: any, b: any) {
 }
 
 export class VNode {
-  static of<C extends keyof IComponentInfo>(type: C, props: IComponentInfo[C]): VNode {
-    return new VNode(type as any, props);
+  static of<C extends keyof IComponentInfoMap>(type: C, props: IComponentInfoMap[C], key?: string | number): VNode {
+    return new VNode(type as any, props, typeof key === 'number' ? key + '' : key);
   }
 
   static cast(arg: any): VNode[] {
@@ -101,14 +101,18 @@ export class VNode {
 
   constructor(
     readonly type: string,
-    readonly props: IProps
+    readonly props: IProps,
+    readonly key?: string
   ) {}
 }
 
-export class Component {
-  constructor(private _registry: ComponentRegistry) {}
+export class Component<C = any, P extends IProps = any, S extends Record<string, any> = any> {
+  constructor(
+    private _registry: ComponentRegistry,
+    protected context: C = null as any
+  ) {}
 
-  protected _changes = new Map<string, any>();
+  protected _changes = new Map<keyof P & keyof S, any>();
 
   onInit() {}
   onDestroy() {}
@@ -155,7 +159,7 @@ export class Component {
     this._doUpdate();
   }
 
-  set(datas: Partial<IProps>) {
+  set(datas: Partial<P> & Partial<S>) {
     this._holdingUpdate = true;
 
     for (const [key, value] of Object.entries(datas)) {
@@ -224,10 +228,11 @@ export class Component {
     };
 
     const _create = (node: VNode) => {
+      // @ts-expect-error
       const Type = this._registry.get(node.type);
       if (!Type) throw new Error(`component "${node.type}" not found`);
 
-      const _ins = new Type(this._registry);
+      const _ins = new Type(this._registry, this.context);
       node._ins = _ins;
 
       _ins.set(node.props);
@@ -256,25 +261,20 @@ export class Component {
       }
 
       // 卸载
-      else if (prev) {
-        _destroy(prev);
-      }
-
+      else if (prev) _destroy(prev);
       // 创建
-      else if (next) {
-        _create(next);
-      }
+      else if (next) _create(next);
     }
 
     this._lastNodes = newNodes;
   }
 }
 
-export class Host {
+export class Host<C extends keyof IComponentInfoMap> {
   private _registry: ComponentRegistry;
   private _comp: Component;
 
-  constructor(root: string, registry = ComponentRegistry.Default) {
+  constructor(root: C, registry = ComponentRegistry.Default) {
     this._registry = registry;
 
     const Type = registry.get(root);
@@ -283,7 +283,11 @@ export class Host {
     this._comp = new Type(this._registry);
   }
 
-  flush(props?: IProps) {
+  get component() {
+    return this._comp;
+  }
+
+  flush(props?: IComponentInfoMap[C]) {
     if (props) this._comp.set(props);
 
     if (!this._comp.initted) {
@@ -298,22 +302,18 @@ export class Host {
   }
 }
 
-export interface IComponentInfo {
-  [key: string]: IProps;
-}
+export interface IComponentInfoMap {}
 
 export class ComponentRegistry {
   static Default = new ComponentRegistry();
 
   private _map = new Map<string, ComponentType>();
 
-  register<C extends keyof IComponentInfo>(name: C, Type: ComponentType) {
-    // @ts-expect-error
+  register<C extends keyof IComponentInfoMap>(name: C, Type: ComponentType) {
     this._map.set(name, Type);
   }
 
-  get<C extends keyof IComponentInfo>(name: C): ComponentType | undefined {
-    // @ts-expect-error
+  get<C extends keyof IComponentInfoMap>(name: C): ComponentType | undefined {
     return this._map.get(name);
   }
 }
