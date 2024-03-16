@@ -5,7 +5,6 @@ export interface ComponentType {
 }
 
 export interface IPropertyMeta {
-  type: 'prop' | 'state';
   isEquals?: (a: any, b: any) => boolean;
 }
 
@@ -45,13 +44,8 @@ function _propertyDecorator(def: IPropertyMeta) {
 }
 
 // property decorator
-export function Prop(def: Omit<IPropertyMeta, 'key' | 'type'> = {}) {
-  return _propertyDecorator({ ...def, type: 'prop' });
-}
-
-// state decorator
-export function State(def: Omit<IPropertyMeta, 'key' | 'type'> = {}) {
-  return _propertyDecorator({ ...def, type: 'state' });
+export function Reactive(def: IPropertyMeta = {}) {
+  return _propertyDecorator({ ...def });
 }
 
 // class decorator
@@ -106,13 +100,13 @@ export class VNode {
   ) {}
 }
 
-export class Component<C = any, P extends IProps = any, S extends Record<string, any> = any> {
+export class Component<C = any, P extends IProps = any> {
   constructor(
     private _registry: ComponentRegistry,
     protected context: C = null as any
   ) {}
 
-  protected _changes = new Map<keyof P & keyof S, any>();
+  protected _changes = new Map<keyof P, any>();
 
   onInit() {}
   onDestroy() {}
@@ -175,7 +169,7 @@ export class Component<C = any, P extends IProps = any, S extends Record<string,
     if (this._skipUpdateFlags.size === 0) this._doUpdate();
   }
 
-  set(datas: Partial<P> & Partial<S>) {
+  set(datas: Partial<P>) {
     this._withBatchUpdate(() => {
       for (const [key, value] of Object.entries(datas)) {
         // @ts-expect-error

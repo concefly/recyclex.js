@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { Component, Host, Prop, ComponentRegistry, State, VNode } from '../src';
+import { Component, Host, Reactive, ComponentRegistry, State, VNode } from '../src';
 
 class TestComp extends Component {
   stringify(desc: string): string {
@@ -17,18 +17,18 @@ class TestComp extends Component {
 
 it('meta data', () => {
   class A extends Component {
-    @Prop()
+    @Reactive()
     name = 'A';
 
-    @State()
+    @Reactive()
     color = 'red';
   }
 
   class B extends A {
-    @Prop()
+    @Reactive()
     name2 = 'B';
 
-    @State()
+    @Reactive()
     color2 = 'blue';
   }
 
@@ -40,17 +40,17 @@ it('meta data', () => {
 
   expect(aMeta).toEqual({
     properties: new Map([
-      ['name', { type: 'prop' }],
-      ['color', { type: 'state' }],
+      ['name', {}],
+      ['color', {}],
     ]),
   });
 
   expect(bMeta).toEqual({
     properties: new Map([
-      ['name', { type: 'prop' }],
-      ['color', { type: 'state' }],
-      ['name2', { type: 'prop' }],
-      ['color2', { type: 'state' }],
+      ['name', {}],
+      ['color', {}],
+      ['name2', {}],
+      ['color2', {}],
     ]),
   });
 });
@@ -60,7 +60,7 @@ it('life cycle', () => {
   const timelines: string[] = [];
 
   class B extends TestComp {
-    @Prop()
+    @Reactive()
     text = 'x';
 
     onInit(): void {
@@ -86,10 +86,10 @@ it('life cycle', () => {
   }
 
   class A extends TestComp {
-    @Prop()
+    @Reactive()
     name = 'Jam';
 
-    @State()
+    @Reactive()
     color = 'red';
 
     onInit(): void {
@@ -133,7 +133,7 @@ it('equals check', () => {
   const timelines: string[] = [];
 
   class A extends TestComp {
-    @Prop()
+    @Reactive()
     name = 'TOM';
 
     onBeforeUpdate(): void {
@@ -155,7 +155,7 @@ it('Cannot call requestUpdate in onUpdate', () => {
   const registry = new ComponentRegistry();
 
   class A extends TestComp {
-    @Prop()
+    @Reactive()
     name = '';
 
     onUpdate(): VNode[] {
@@ -174,10 +174,10 @@ it('set props onInit', () => {
   const timelines: string[] = [];
 
   class A extends TestComp {
-    @State()
+    @Reactive()
     name = '';
 
-    @State()
+    @Reactive()
     color = '';
 
     onInit(): void {
