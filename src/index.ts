@@ -142,9 +142,24 @@ export class Component<C = any, P extends IProps = any, S extends Record<string,
 
   private _metaCache: IComponentMeta | null = null;
   private _initted = false;
-  private _holdingUpdate = true;
+  private _skipUpdateFlags = new Set<string>();
   private _lastNodes: VNode[] = [];
   private readonly _updateQueue: { key: string; oldValue?: any }[] = [];
+
+  private _withBatchUpdate(fn: Function) {
+    try {
+      this._skipUpdateFlags.add('batch');
+      fn();
+
+      this._skipUpdateFlags.delete('batch');
+      this._doUpdate();
+    } catch (e) {
+      // clear queue
+      this._updateQueue.length = 0;
+      this._skipUpdateFlags.delete('batch');
+      throw e;
+    }
+  }
 
   requestUpdate(key: string, oldValue?: any) {
     const _def = this.meta.properties.get(key);
@@ -156,23 +171,21 @@ export class Component<C = any, P extends IProps = any, S extends Record<string,
     if (_equals(oldValue, _curValue)) return; // no change
 
     this._updateQueue.push({ key, oldValue });
-    this._doUpdate();
+
+    if (this._skipUpdateFlags.size === 0) this._doUpdate();
   }
 
   set(datas: Partial<P> & Partial<S>) {
-    this._holdingUpdate = true;
-
-    for (const [key, value] of Object.entries(datas)) {
-      // @ts-expect-error
-      this[key] = value;
-    }
-
-    this._holdingUpdate = false;
-    this._doUpdate();
+    this._withBatchUpdate(() => {
+      for (const [key, value] of Object.entries(datas)) {
+        // @ts-expect-error
+        this[key] = value;
+      }
+    });
   }
 
   private _doUpdate() {
-    if (this._holdingUpdate || !this._initted) return;
+    if (this._skipUpdateFlags.size > 0 || !this._initted) return;
 
     const queue = this._updateQueue.concat();
     this._updateQueue.length = 0;
@@ -184,24 +197,43 @@ export class Component<C = any, P extends IProps = any, S extends Record<string,
 
     if (this._changes.size === 0) return; // no change
 
-    this.onBeforeUpdate();
+    this._skipUpdateFlags.add('update');
 
-    const vnodes = VNode.cast(this.onUpdate());
-    this._diff(vnodes);
+    try {
+      this.onBeforeUpdate();
+      const _queueOnBeforeUpdate = this._updateQueue.concat();
+      this._updateQueue.length = 0;
 
-    this.onAfterUpdate();
+      const vnodes = VNode.cast(this.onUpdate());
+      if (this._updateQueue.length > 0) throw new Error('Cannot call requestUpdate in onUpdate');
+
+      this._diff(vnodes);
+
+      this.onAfterUpdate();
+      const _queueOnAfterUpdate = this._updateQueue.concat();
+      this._updateQueue.length = 0;
+
+      this._skipUpdateFlags.delete('update');
+
+      Promise.resolve().then(() => {
+        this._updateQueue.unshift(..._queueOnBeforeUpdate, ..._queueOnAfterUpdate);
+        this._doUpdate();
+      });
+    } finally {
+      this._skipUpdateFlags.delete('update');
+    }
   }
 
   private _doInit() {
-    this.onInit();
-
-    this._initted = true;
-    this._holdingUpdate = false;
-
-    this._doUpdate(); // trigger update
+    this._withBatchUpdate(() => {
+      this.onInit();
+      this._initted = true;
+    });
   }
 
   private _doDestroy() {
+    this._skipUpdateFlags.add('destroy'); // 销毁时不触发更新
+
     for (const node of this._lastNodes) {
       if (node._ins) {
         node._ins._doDestroy();

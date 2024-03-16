@@ -150,3 +150,50 @@ it('equals check', () => {
 
   expect(timelines).toMatchSnapshot();
 });
+
+it('Cannot call requestUpdate in onUpdate', () => {
+  const registry = new ComponentRegistry();
+
+  class A extends TestComp {
+    @Prop()
+    name = '';
+
+    onUpdate(): VNode[] {
+      this.set({ name: 'JANE' });
+    }
+  }
+
+  registry.register('A', A);
+  const host = new Host('A', registry);
+
+  expect(() => host.flush({ name: 'TOM' })).toThrow('Cannot call requestUpdate in onUpdate');
+});
+
+it('set props onInit', () => {
+  const registry = new ComponentRegistry();
+  const timelines: string[] = [];
+
+  class A extends TestComp {
+    @State()
+    name = '';
+
+    @State()
+    color = '';
+
+    onInit(): void {
+      this.set({ name: 'JANE' });
+      this.set({ name: 'JANE2' });
+      this.set({ color: 'RED' });
+    }
+
+    onUpdate(): void {
+      timelines.push(this.stringify('receive:'));
+    }
+  }
+
+  registry.register('A', A);
+  const host = new Host('A', registry);
+
+  host.flush({});
+  expect(timelines).toEqual(['<A> receive: name=JANE2, color=RED,']);
+});
