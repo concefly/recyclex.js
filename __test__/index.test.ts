@@ -169,7 +169,7 @@ it('Cannot call requestUpdate in onUpdate', () => {
   expect(() => host.flush({ name: 'TOM' })).toThrow('Cannot call requestUpdate in onUpdate');
 });
 
-it.only('set props on lifecycle', () => {
+it('set props on lifecycle', () => {
   const registry = new ComponentRegistry();
   const timelines: string[] = [];
 
@@ -196,4 +196,69 @@ it.only('set props on lifecycle', () => {
 
   host.flush({});
   expect(timelines).toEqual(['<A> receive: name=JANE2, color=RED,']);
+});
+
+it('keys lifecycle', () => {
+  const registry = new ComponentRegistry();
+  const timelines: string[] = [];
+
+  class A extends TestComp {
+    @Reactive() datas!: { id: string; v: string }[];
+
+    onUpdate() {
+      return this.datas.map(({ id, v }) => Blueprint.of('B', { id, v }, id));
+    }
+  }
+
+  class B extends TestComp {
+    @Reactive() id!: string;
+    @Reactive() v!: string;
+
+    onInit(): void {
+      timelines.push(`B_${this.id} init`);
+    }
+
+    onUpdate(): void {
+      timelines.push(`B_${this.id} update`);
+    }
+
+    onDestroy(): void {
+      timelines.push(`B_${this.id} destroy`);
+    }
+  }
+
+  registry.register('A', A);
+  registry.register('B', B);
+
+  const host = new Host('A', registry);
+
+  host.flush({
+    datas: [
+      { id: '1', v: 'a' },
+      { id: '2', v: 'b' },
+    ],
+  });
+
+  timelines.push('---');
+  host.flush({
+    datas: [
+      { id: '2', v: 'x' },
+      { id: '3', v: 'x' },
+      { id: '4', v: 'x' },
+    ],
+  });
+
+  expect(timelines).toEqual([
+    'B_1 init',
+    'B_1 update',
+    'B_2 init',
+    'B_2 update',
+    '---',
+    'B_1 destroy',
+    'B_3 init',
+    'B_3 update',
+    'B_4 init',
+    'B_4 update',
+    'B_2 update',
+  ]);
 });

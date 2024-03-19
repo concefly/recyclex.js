@@ -73,8 +73,8 @@ function _defaultEquals(a: any, b: any) {
 }
 
 export class Blueprint {
-  static of<C extends keyof IComponentInfoMap>(type: C, props: IComponentInfoMap[C], key?: string | number): Blueprint {
-    return new Blueprint(type as any, props, typeof key === 'number' ? key + '' : key);
+  static of<C extends keyof IComponentInfoMap>(type: C, props: IComponentInfoMap[C], key?: string): Blueprint {
+    return new Blueprint(type as any, props, key || '');
   }
 
   static cast(arg: any): Blueprint[] {
@@ -96,8 +96,10 @@ export class Blueprint {
   constructor(
     readonly type: string,
     readonly props: IProps,
-    readonly key?: string
-  ) {}
+    readonly key: string
+  ) {
+    if (key.startsWith('__$$')) throw new Error('Key cannot start with __$$: ' + key);
+  }
 }
 
 export class Component<C = any, P extends IProps = any> {
@@ -200,6 +202,15 @@ export class Component<C = any, P extends IProps = any> {
       const vnodes = Blueprint.cast(this.onUpdate());
       if (this._updateQueue.length > 0) throw new Error('Cannot call requestUpdate in onUpdate');
 
+      // fill node key
+      const _keysCount = vnodes.filter(n => n.key).length;
+      if (_keysCount === 0) {
+        // @ts-expect-error
+        vnodes.forEach((n, i) => (n.key = `__$$${i}`));
+      } else if (_keysCount < vnodes.length) {
+        throw new Error('All must have keys, or none at all');
+      }
+
       this._diff(vnodes);
 
       this.onAfterUpdate();
@@ -234,9 +245,6 @@ export class Component<C = any, P extends IProps = any> {
   }
 
   private _diff(newNodes: Blueprint[]) {
-    const oldNodes = this._lastNodes;
-    const maxLength = Math.max(oldNodes.length, newNodes.length);
-
     const _destroy = (node: Blueprint) => {
       if (node._ins) {
         node._ins._doDestroy();
@@ -256,31 +264,57 @@ export class Component<C = any, P extends IProps = any> {
       _ins._doInit();
     };
 
-    for (let i = 0; i < maxLength; i++) {
-      const prev = oldNodes[i];
-      const next = newNodes[i];
+    const oldNodes = this._lastNodes;
+    const oldNodeMap = new Map<string, Blueprint>(oldNodes.map(n => [n.key, n]));
+    const newNodeMap = new Map<string, Blueprint>(newNodes.map(n => [n.key, n]));
 
-      if (prev && next) {
-        // 类型相同，递归更新
-        if (prev.type === next.type) {
-          if (!prev._ins) throw new Error('prev._ins not exists');
-          if (!next._ins) next._ins = prev._ins; // 传递实例
+    const _toDestroyKeys = new Set<string>();
+    const _toCreateKeys = new Set<string>();
+    const _toUpdateKeys = new Set<string>();
 
-          // set props
-          next._ins.set(next.props);
-        }
+    for (let i = 0; i < oldNodes.length; i++) {
+      const _n = oldNodes[i];
+      _toUpdateKeys.add(_n.key);
+      if (!newNodeMap.has(_n.key)) _toDestroyKeys.add(_n.key);
+    }
 
-        // 类型不同，卸载 prev，创建 next
-        else {
-          _destroy(prev);
-          _create(next);
-        }
+    for (let i = 0; i < newNodes.length; i++) {
+      const _n = newNodes[i];
+      _toUpdateKeys.add(_n.key);
+      if (!oldNodeMap.has(_n.key)) _toCreateKeys.add(_n.key);
+    }
+
+    // 卸载
+    for (const _k of _toDestroyKeys) {
+      _toUpdateKeys.delete(_k);
+      _destroy(oldNodeMap.get(_k)!);
+    }
+
+    // 创建
+    for (const _k of _toCreateKeys) {
+      _toUpdateKeys.delete(_k);
+      _create(newNodeMap.get(_k)!);
+    }
+
+    // 更新
+    for (const _k of _toUpdateKeys) {
+      const prev = oldNodeMap.get(_k)!;
+      const next = newNodeMap.get(_k)!;
+
+      // 类型相同，递归更新
+      if (prev.type === next.type) {
+        if (!prev._ins) throw new Error('prev._ins not exists');
+        if (!next._ins) next._ins = prev._ins; // 传递实例
+
+        // set props
+        next._ins.set(next.props);
       }
 
-      // 卸载
-      else if (prev) _destroy(prev);
-      // 创建
-      else if (next) _create(next);
+      // 类型不同，卸载 prev，创建 next
+      else {
+        _destroy(prev);
+        _create(next);
+      }
     }
 
     this._lastNodes = newNodes;
