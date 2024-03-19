@@ -72,18 +72,18 @@ function _defaultEquals(a: any, b: any) {
   return a === b;
 }
 
-export class VNode {
-  static of<C extends keyof IComponentInfoMap>(type: C, props: IComponentInfoMap[C], key?: string | number): VNode {
-    return new VNode(type as any, props, typeof key === 'number' ? key + '' : key);
+export class Blueprint {
+  static of<C extends keyof IComponentInfoMap>(type: C, props: IComponentInfoMap[C], key?: string | number): Blueprint {
+    return new Blueprint(type as any, props, typeof key === 'number' ? key + '' : key);
   }
 
-  static cast(arg: any): VNode[] {
-    if (arg instanceof VNode) return [arg];
+  static cast(arg: any): Blueprint[] {
+    if (arg instanceof Blueprint) return [arg];
 
     if (Array.isArray(arg)) {
-      const list: VNode[] = [];
+      const list: Blueprint[] = [];
       for (const item of arg) {
-        list.push(...VNode.cast(item));
+        list.push(...Blueprint.cast(item));
       }
       return list;
     }
@@ -137,7 +137,7 @@ export class Component<C = any, P extends IProps = any> {
   private _metaCache: IComponentMeta | null = null;
   private _initted = false;
   private _skipUpdateFlags = new Set<string>();
-  private _lastNodes: VNode[] = [];
+  private _lastNodes: Blueprint[] = [];
   private readonly _updateQueue: { key: string; oldValue?: any }[] = [];
 
   private _withBatchUpdate(fn: Function) {
@@ -195,24 +195,15 @@ export class Component<C = any, P extends IProps = any> {
 
     try {
       this.onBeforeUpdate();
-      const _queueOnBeforeUpdate = this._updateQueue.concat();
-      this._updateQueue.length = 0;
+      if (this._updateQueue.length > 0) throw new Error('Cannot call requestUpdate in onBeforeUpdate');
 
-      const vnodes = VNode.cast(this.onUpdate());
+      const vnodes = Blueprint.cast(this.onUpdate());
       if (this._updateQueue.length > 0) throw new Error('Cannot call requestUpdate in onUpdate');
 
       this._diff(vnodes);
 
       this.onAfterUpdate();
-      const _queueOnAfterUpdate = this._updateQueue.concat();
-      this._updateQueue.length = 0;
-
-      this._skipUpdateFlags.delete('update');
-
-      Promise.resolve().then(() => {
-        this._updateQueue.unshift(..._queueOnBeforeUpdate, ..._queueOnAfterUpdate);
-        this._doUpdate();
-      });
+      if (this._updateQueue.length > 0) throw new Error('Cannot call requestUpdate in onAfterUpdate');
     } finally {
       this._skipUpdateFlags.delete('update');
     }
@@ -242,18 +233,18 @@ export class Component<C = any, P extends IProps = any> {
     this.onDestroy();
   }
 
-  private _diff(newNodes: VNode[]) {
+  private _diff(newNodes: Blueprint[]) {
     const oldNodes = this._lastNodes;
     const maxLength = Math.max(oldNodes.length, newNodes.length);
 
-    const _destroy = (node: VNode) => {
+    const _destroy = (node: Blueprint) => {
       if (node._ins) {
         node._ins._doDestroy();
         node._ins = null;
       }
     };
 
-    const _create = (node: VNode) => {
+    const _create = (node: Blueprint) => {
       // @ts-expect-error
       const Type = this._registry.get(node.type);
       if (!Type) throw new Error(`component "${node.type}" not found`);
@@ -296,17 +287,17 @@ export class Component<C = any, P extends IProps = any> {
   }
 }
 
-export class Host<C extends keyof IComponentInfoMap> {
+export class Host<C extends keyof IComponentInfoMap, C2 = any> {
   private _registry: ComponentRegistry;
   private _comp: Component;
 
-  constructor(root: C, registry = ComponentRegistry.Default) {
+  constructor(root: C, registry = ComponentRegistry.Default, context?: C2) {
     this._registry = registry;
 
     const Type = registry.get(root);
     if (!Type) throw new Error(`component "${root}" not found`);
 
-    this._comp = new Type(this._registry);
+    this._comp = new Type(this._registry, context);
   }
 
   get component() {

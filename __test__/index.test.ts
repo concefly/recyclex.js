@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { Component, Host, Reactive, ComponentRegistry, State, VNode } from '../src';
+import { Component, Host, Reactive, ComponentRegistry, State, Blueprint } from '../src';
 
 class TestComp extends Component {
   stringify(desc: string): string {
@@ -75,7 +75,7 @@ it('life cycle', () => {
       timelines.push('  ' + this.stringify('onAfterUpdate'));
     }
 
-    onUpdate(): VNode[] {
+    onUpdate(): Blueprint[] {
       timelines.push('  ' + this.stringify('onUpdate'));
       return [];
     }
@@ -96,9 +96,9 @@ it('life cycle', () => {
       timelines.push(this.stringify('onInit'));
     }
 
-    onUpdate(): VNode[] {
+    onUpdate(): Blueprint[] {
       timelines.push(this.stringify('onUpdate'));
-      return [VNode.of('B', { text: [this.name, this.color].join('-') })];
+      return [Blueprint.of('B', { text: [this.name, this.color].join('-') })];
     }
 
     onBeforeUpdate(): void {
@@ -158,7 +158,7 @@ it('Cannot call requestUpdate in onUpdate', () => {
     @Reactive()
     name = '';
 
-    onUpdate(): VNode[] {
+    onUpdate(): Blueprint[] {
       this.set({ name: 'JANE' });
     }
   }
@@ -169,7 +169,7 @@ it('Cannot call requestUpdate in onUpdate', () => {
   expect(() => host.flush({ name: 'TOM' })).toThrow('Cannot call requestUpdate in onUpdate');
 });
 
-it('set props onInit', () => {
+it.only('set props on lifecycle', () => {
   const registry = new ComponentRegistry();
   const timelines: string[] = [];
 
