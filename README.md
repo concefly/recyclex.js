@@ -1,9 +1,9 @@
-# recycle.js
+# recyclex.js
 
 <p>
-  <img src="https://github.com/concefly/recycle.js/actions/workflows/ci.yml/badge.svg" alt="CI" />
-  <img src="https://img.shields.io/npm/dw/recycle.js" alt="npm" />
-  <img src="https://img.shields.io/npm/v/recycle.js" alt="npm" />
+  <img src="https://github.com/concefly/recyclex.js/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <img src="https://img.shields.io/npm/dw/recyclex.js" alt="npm" />
+  <img src="https://img.shields.io/npm/v/recyclex.js" alt="npm" />
 </p>
 
 A reactive cycle manager.
@@ -14,13 +14,13 @@ A reactive cycle manager.
 ## Install
 
 ```bash
-npm install recycle.js --save
+npm install recyclex.js --save
 ```
 
 ## Usage
 
 ```javascript
-import { Component, Blueprint, Register } from 'recycle.js';
+import { Component, Blueprint, Register } from 'recyclex.js';
 
 @Register('Foo')
 class Foo extends Component {
@@ -104,7 +104,7 @@ It will be reload before `onBeforeUpdate` is called.
 Register the class.
 
 ```javascript
-import { Register, Component, ComponentRegistry } from 'recycle.js';
+import { Register, Component, ComponentRegistry } from 'recyclex.js';
 
 // Register to the default registry
 @Register('Foo')
@@ -125,7 +125,7 @@ class Bar extends Component {
 Create a blueprint.
 
 ```javascript
-import { Blueprint } from 'recycle.js';
+import { Blueprint } from 'recyclex.js';
 
 // Foo is already registered
 const blueprint = Blueprint.of('Foo', { text: 'Hello' });
@@ -136,7 +136,7 @@ const blueprint = Blueprint.of('Foo', { text: 'Hello' });
 Create a host.
 
 ```javascript
-import { Host } from 'recycle.js';
+import { Host } from 'recyclex.js';
 
 // Foo is already registered
 const host = new Host('Foo');
@@ -155,7 +155,7 @@ Make the property reactive.
 - If the property is set to a new value, the component will go through the update cycle.
 
 ```javascript
-import { Reactive } from 'recycle.js';
+import { Reactive } from 'recyclex.js';
 
 class Foo {
   @Reactive() text = '';
