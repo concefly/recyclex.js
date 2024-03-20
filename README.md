@@ -1,124 +1,164 @@
-# tiny-symbol-solver
+# recycle.js
 
 <p>
-  <img src="https://github.com/solidx-js/tiny-symbol-solver/actions/workflows/ci.yml/badge.svg" alt="CI" />
-  <img src="https://img.shields.io/npm/dw/tiny-symbol-solver" alt="npm" />
-  <img src="https://img.shields.io/npm/v/tiny-symbol-solver" alt="npm" />
+  <img src="https://github.com/concefly/recycle.js/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <img src="https://img.shields.io/npm/dw/recycle.js" alt="npm" />
+  <img src="https://img.shields.io/npm/v/recycle.js" alt="npm" />
 </p>
 
-A symbol solver.
+A reactive cycle manager.
 
-- Define symbols and expressions.
-- Solve a symbol.
-- Get dependencies and effects of a symbol.
+- Responsive property and lifecycle management
+- Zero dependencies
 
 ## Install
 
 ```bash
-npm install tiny-symbol-solver --save
+npm install recycle.js --save
 ```
 
 ## Usage
 
 ```javascript
-import { Solver } from 'tiny-symbol-solver';
+import { Component, Blueprint, Register } from 'recycle.js';
 
-const solver = new Solver();
-solver.define('a = 1');
-solver.define('b = 2');
-solver.define('c = a + b');
+@Register('Foo')
+class Foo extends Component {
+  @Reactive() text = '';
 
-console.log(solver.solve('c')); // 3
+  override onUpdate() {
+    return [
+      Blueprint.of('Bar', { text: this.text + '_1' }),
+      Blueprint.of('Bar', { text: this.text + '_2' }),
+      Blueprint.of('Bar', { text: this.text + '_3' }),
+    ];
+  }
+}
+
+@Register('Bar')
+class Bar extends Component {
+  @Reactive() text = '';
+
+  override onUpdate() {
+    console.log(this.text);
+  }
+}
+
+const host = new Host('Foo');
+host.flush({ text: 'Hello' });
+host.destroy();
 ```
 
 ## API
 
-### Solver
+### `Component`
 
-A class that represents a symbol solver.
+#### `override onInit() {...}`
+
+Called when the component is initialized.
+
+#### `override onBeforeUpdate() {...}`
+
+Called before the component is updated.
+
+#### `override onUpdate() {...}`
+
+Called when the component is updated.
+
+if the return value is an array of `Blueprint`, the children will be **init or update or destroy** according to the return value, just like the react's `render` method.
+
+It means:
+
+- If the child is **NEW**, it will be initialized.
+- If the child is **EXIST**, it will be updated.
+- If the child is **NOT EXIST** anymore, it will be destroyed.
+
+**NOTE**: The return item is `Blueprint`, so:
+
+- Class must be registered.
+- Class will not be initialized, updated or destroyed immediately, but will be added to the update queue, and managed internally.
+
+#### `override onAfterUpdate() {...}`
+
+Called after the component is updated.
+
+- If there is children, it will be called after all children are updated.
+
+#### `override onDestroy() {...}`
+
+Called when the component is destroyed.
+
+- If there is children, it will be called after all children are destroyed.
+
+#### `this._changes: Map<string, any>`
+
+A map of changes that have occurred in the component.
+
+- Key: property name
+- Value: old value
+
+It will be reload before `onBeforeUpdate` is called.
+
+### `Register()`
+
+Register the class.
 
 ```javascript
-import { Solver } from 'tiny-symbol-solver';
-const solver = new Solver();
+import { Register, Component, ComponentRegistry } from 'recycle.js';
+
+// Register to the default registry
+@Register('Foo')
+class Foo extends Component {
+  // ...
+}
+
+// Register to the custom registry
+const myRegistry = new ComponentRegistry();
+@Register('Bar', myRegistry)
+class Bar extends Component {
+  // ...
+}
 ```
 
-#### solver.define()
+### `Blueprint()`
 
-Defines a symbol or an expression.
+Create a blueprint.
 
 ```javascript
-solver.define('a = 1');
-solver.define('power2(x) = x * x');
-solver.define('c = a + power2(3)');
+import { Blueprint } from 'recycle.js';
 
-console.log(solver.solve('c')); // 10
+// Foo is already registered
+const blueprint = Blueprint.of('Foo', { text: 'Hello' });
 ```
 
-You can also define symbols with a native number or function.
+### `Host()`
+
+Create a host.
 
 ```javascript
-solver.define('a', 1); // a = 1
-solver.define('power2', x => x * x);
-solver.define('sin', Math.sin);
+import { Host } from 'recycle.js';
+
+// Foo is already registered
+const host = new Host('Foo');
+
+// Flush the host with props
+host.flush({ text: 'Hello' });
+
+// Destroy the host
+host.destroy();
 ```
 
-#### solver.solve()
+### `Reactive()`
 
-Solves a symbol.
+Make the property reactive.
 
-```javascript
-const result = solver.solve('c');
-```
-
-**NOTE**: If the symbol is not defined, it will throw an error.
-
-#### solver.deps(), solver.effects()
-
-- `solver.deps(sym)`: Returns a list of dependencies for a symbol.
-- `solver.effects(sym)`: Returns a list of symbols that depend on a symbol.
+- If the property is set to a new value, the component will go through the update cycle.
 
 ```javascript
-/**
- * make a dependency graph
- * a
- * | \
- * b  c
- * | \| \
- * d  e  f
- */
-solver.define('a = 1');
-solver.define('b = a + 1');
-solver.define('c = a + 2');
-solver.define('d = b + 3');
-solver.define('e = b + c');
-solver.define('f = c + 4');
+import { Reactive } from 'recycle.js';
 
-solver.deps('a'); // []
-solver.deps('b'); // ['a']
-solver.deps('c'); // ['a']
-solver.deps('d'); // ['a', 'b']
-solver.deps('e'); // ['a', 'b', 'c']
-solver.deps('f'); // ['a', 'c']
-
-solver.effects('a'); // ['b', 'c', 'd', 'e', 'f']
-solver.effects('b'); // ['d', 'e']
-solver.effects('c'); // ['e', 'f']
-solver.effects('d'); // []
-solver.effects('e'); // []
-solver.effects('f'); // []
-```
-
-#### solver.events
-
-Listen to events.
-
-event types:
-
-- `solve`: when a symbol is solved.
-  - `ev.sym`: the symbol key.
-
-```javascript
-solver.events.listen('solve', ev => {
-  console.log(`solved: ${ev.sym}`);
-});
+class Foo {
+  @Reactive() text = '';
+  @Reactive() count = 0;
+}
 ```
