@@ -68,9 +68,11 @@ function _getComponentMeta(Type: ComponentType): IComponentMeta | null {
   };
 }
 
-function _defaultEquals(a: any, b: any) {
-  return a === b;
-}
+export const Options: {
+  isEqual: (a: any, b: any) => boolean;
+} = {
+  isEqual: (a, b) => a === b,
+};
 
 export class Blueprint {
   static of<C extends keyof IComponentInfoMap>(type: C, props: IComponentInfoMap[C], key?: string): Blueprint {
@@ -138,50 +140,67 @@ export class Component<C = any, P extends IProps = any> {
 
   private _metaCache: IComponentMeta | null = null;
   private _initted = false;
-  private _skipUpdateFlags = new Set<string>();
   private _lastNodes: Blueprint[] = [];
   private readonly _updateQueue: { key: string; oldValue?: any }[] = [];
 
-  private _withBatchUpdate(fn: Function) {
-    try {
-      this._skipUpdateFlags.add('batch');
-      fn();
+  private _inLifecycle: null | 'onInit' | 'onBeforeUpdate' | 'onUpdate' | 'onAfterUpdate' | 'onDestroy' = null;
+  private _pending: Promise<void> | null = null;
 
-      this._skipUpdateFlags.delete('batch');
-      this._doUpdate();
-    } catch (e) {
-      // clear queue
-      this._updateQueue.length = 0;
-      this._skipUpdateFlags.delete('batch');
-      throw e;
+  protected requestUpdate(key: string, oldValue?: any) {
+    if (this._inLifecycle === 'onDestroy') return; // do nothing
+
+    if (this._inLifecycle === 'onAfterUpdate' || this._inLifecycle === 'onBeforeUpdate' || this._inLifecycle === 'onUpdate') {
+      throw new Error(`Cannot requestUpdate ${this._inLifecycle}: key=${key}`);
     }
-  }
 
-  requestUpdate(key: string, oldValue?: any) {
     const _def = this.meta.properties.get(key);
     if (!_def) throw new Error(`property "${key}" not found`);
 
-    const _equals = _def.isEquals || _defaultEquals;
+    const _equals = _def.isEquals || Options.isEqual;
     const _curValue = (this as any)[key];
 
     if (_equals(oldValue, _curValue)) return; // no change
 
     this._updateQueue.push({ key, oldValue });
 
-    if (this._skipUpdateFlags.size === 0) this._doUpdate();
+    // 设置单个属性都是异步的
+    this._schedule(true);
   }
 
-  set(datas: Partial<P>) {
-    this._withBatchUpdate(() => {
-      for (const [key, value] of Object.entries(datas)) {
+  dispatch(datas: Partial<P>): void;
+  dispatch(cb: () => any): void;
+  dispatch(arg: any) {
+    if (typeof arg === 'function') {
+      arg.call(this);
+    } else {
+      for (const [key, value] of Object.entries(arg)) {
         // @ts-expect-error
         this[key] = value;
       }
-    });
+    }
+
+    this._schedule();
+  }
+
+  private _schedule(transition?: boolean) {
+    if (!this._initted || this._inLifecycle === 'onDestroy') return;
+    if (this._updateQueue.length === 0) return;
+
+    if (transition) {
+      if (!this._pending) {
+        this._pending = Promise.resolve().then(() => {
+          this._pending = null;
+          this._doUpdate();
+        });
+      }
+    } else {
+      this._pending = null;
+      this._doUpdate();
+    }
   }
 
   private _doUpdate() {
-    if (this._skipUpdateFlags.size > 0 || !this._initted) return;
+    if (this._inLifecycle) throw new Error('Cannot update in lifecycle: ' + this._inLifecycle);
 
     const queue = this._updateQueue.concat();
     this._updateQueue.length = 0;
@@ -193,42 +212,44 @@ export class Component<C = any, P extends IProps = any> {
 
     if (this._changes.size === 0) return; // no change
 
-    this._skipUpdateFlags.add('update');
+    this._inLifecycle = 'onBeforeUpdate';
+    this.onBeforeUpdate();
+    this._inLifecycle = null;
 
-    try {
-      this.onBeforeUpdate();
-      if (this._updateQueue.length > 0) throw new Error('Cannot call requestUpdate in onBeforeUpdate');
+    this._inLifecycle = 'onUpdate';
+    const vnodes = Blueprint.cast(this.onUpdate());
+    this._inLifecycle = null;
 
-      const vnodes = Blueprint.cast(this.onUpdate());
-      if (this._updateQueue.length > 0) throw new Error('Cannot call requestUpdate in onUpdate');
-
-      // fill node key
-      const _keysCount = vnodes.filter(n => n.key).length;
-      if (_keysCount === 0) {
-        // @ts-expect-error
-        vnodes.forEach((n, i) => (n.key = `__$$${i}`));
-      } else if (_keysCount < vnodes.length) {
-        throw new Error('All must have keys, or none at all');
-      }
-
-      this._diff(vnodes);
-
-      this.onAfterUpdate();
-      if (this._updateQueue.length > 0) throw new Error('Cannot call requestUpdate in onAfterUpdate');
-    } finally {
-      this._skipUpdateFlags.delete('update');
+    // fill node key
+    const _keysCount = vnodes.filter(n => n.key).length;
+    if (_keysCount === 0) {
+      // @ts-expect-error
+      vnodes.forEach((n, i) => (n.key = `__$$${i}`));
+    } else if (_keysCount < vnodes.length) {
+      throw new Error('All must have keys, or none at all');
     }
+
+    this._diff(vnodes);
+
+    this._inLifecycle = 'onAfterUpdate';
+    this.onAfterUpdate();
+    this._inLifecycle = null;
   }
 
   private _doInit() {
-    this._withBatchUpdate(() => {
-      this.onInit();
-      this._initted = true;
-    });
+    if (this._initted) return;
+
+    this._inLifecycle = 'onInit';
+    this.onInit();
+
+    this._inLifecycle = null;
+    this._initted = true;
+
+    this._schedule();
   }
 
   private _doDestroy() {
-    this._skipUpdateFlags.add('destroy'); // 销毁时不触发更新
+    this._inLifecycle = 'onDestroy';
 
     for (const node of this._lastNodes) {
       if (node._ins) {
@@ -242,6 +263,8 @@ export class Component<C = any, P extends IProps = any> {
     this._lastNodes.length = 0;
     this._updateQueue.length = 0;
     this.onDestroy();
+
+    this._inLifecycle = null;
   }
 
   private _diff(newNodes: Blueprint[]) {
@@ -260,7 +283,7 @@ export class Component<C = any, P extends IProps = any> {
       const _ins = new Type(this._registry, this.context);
       node._ins = _ins;
 
-      _ins.set(node.props);
+      _ins.dispatch(node.props);
       _ins._doInit();
     };
 
@@ -307,7 +330,7 @@ export class Component<C = any, P extends IProps = any> {
         if (!next._ins) next._ins = prev._ins; // 传递实例
 
         // set props
-        next._ins.set(next.props);
+        next._ins.dispatch(next.props);
       }
 
       // 类型不同，卸载 prev，创建 next
@@ -338,8 +361,8 @@ export class Host<C extends keyof IComponentInfoMap, C2 = any> {
     return this._comp;
   }
 
-  flush(props?: IComponentInfoMap[C]) {
-    if (props) this._comp.set(props);
+  dispatch(props?: IComponentInfoMap[C]) {
+    if (props) this._comp.dispatch(props);
 
     if (!this._comp.initted) {
       // @ts-expect-error

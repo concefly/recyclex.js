@@ -118,11 +118,11 @@ it('life cycle', () => {
   registry.register('B', B);
 
   const host = new Host('A', registry);
-  host.flush({});
+  host.dispatch({});
   expect(timelines).toMatchSnapshot('with initial values');
 
-  host.flush({ name: 'Tom' });
-  host.flush({ name: 'Jane' });
+  host.dispatch({ name: 'Tom' });
+  host.dispatch({ name: 'Jane' });
   host.destroy();
 
   expect(timelines).toMatchSnapshot();
@@ -144,9 +144,9 @@ it('equals check', () => {
   registry.register('A', A);
   const host = new Host('A', registry);
 
-  host.flush({ name: 'TOM' });
-  host.flush({ name: 'JANE' });
-  host.flush({ name: 'JANE' });
+  host.dispatch({ name: 'TOM' });
+  host.dispatch({ name: 'JANE' });
+  host.dispatch({ name: 'JANE' });
 
   expect(timelines).toMatchSnapshot();
 });
@@ -159,14 +159,14 @@ it('Cannot call requestUpdate in onUpdate', () => {
     name = '';
 
     onUpdate(): Blueprint[] {
-      this.set({ name: 'JANE' });
+      this.dispatch({ name: 'JANE' });
     }
   }
 
   registry.register('A', A);
   const host = new Host('A', registry);
 
-  expect(() => host.flush({ name: 'TOM' })).toThrow('Cannot call requestUpdate in onUpdate');
+  expect(() => host.dispatch({ name: 'TOM' })).toThrow('Cannot requestUpdate onUpdate: key=name');
 });
 
 it('set props on lifecycle', () => {
@@ -181,9 +181,9 @@ it('set props on lifecycle', () => {
     color = '';
 
     onInit(): void {
-      this.set({ name: 'JANE' });
-      this.set({ name: 'JANE2' });
-      this.set({ color: 'RED' });
+      this.dispatch({ name: 'JANE' });
+      this.dispatch({ name: 'JANE2' });
+      this.dispatch({ color: 'RED' });
     }
 
     onUpdate(): void {
@@ -194,7 +194,7 @@ it('set props on lifecycle', () => {
   registry.register('A', A);
   const host = new Host('A', registry);
 
-  host.flush({});
+  host.dispatch({});
   expect(timelines).toEqual(['<A> receive: name=JANE2, color=RED,']);
 });
 
@@ -232,7 +232,7 @@ it('keys lifecycle', () => {
 
   const host = new Host('A', registry);
 
-  host.flush({
+  host.dispatch({
     datas: [
       { id: '1', v: 'a' },
       { id: '2', v: 'b' },
@@ -240,7 +240,7 @@ it('keys lifecycle', () => {
   });
 
   timelines.push('---');
-  host.flush({
+  host.dispatch({
     datas: [
       { id: '2', v: 'x' },
       { id: '3', v: 'x' },
@@ -261,4 +261,34 @@ it('keys lifecycle', () => {
     'B_4 update',
     'B_2 update',
   ]);
+});
+
+it('batch set props in async', done => {
+  const registry = new ComponentRegistry();
+  const timelines: string[] = [];
+
+  class A extends TestComp {
+    @Reactive() name = '';
+    @Reactive() color = '';
+
+    onInit(): void {
+      setTimeout(() => {
+        this.name = 'JANE';
+        this.color = 'BLUE';
+      }, 0);
+    }
+
+    onUpdate() {
+      timelines.push(this.stringify('receive:'));
+    }
+  }
+
+  registry.register('A', A);
+  const host = new Host('A', registry);
+  host.dispatch({});
+
+  setTimeout(() => {
+    expect(timelines).toEqual(['<A> receive: name=, color=,', '<A> receive: name=JANE, color=BLUE,']);
+    done();
+  }, 100);
 });
