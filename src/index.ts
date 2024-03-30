@@ -6,14 +6,19 @@ export interface ComponentType {
 
 export interface IPropertyMeta {
   isEquals?: (a: any, b: any) => boolean;
+  onInit?(key: string): any;
+  onDestroy?(key: string): any;
+  onSet?(key: string, value: any, oldValue?: any): any;
+  shouldRequestUpdate?(key: string, value: any, oldValue?: any): boolean;
 }
 
 export interface IComponentMeta {
   properties: Map<string, IPropertyMeta>;
 }
 
-function _propertyDecorator(def: IPropertyMeta) {
-  return function (prototype: any, key: string) {
+// property decorator
+export function Reactive<T extends Component, K extends string>(def: IPropertyMeta = {}) {
+  return function (prototype: T, key: K) {
     if (!Object.prototype.hasOwnProperty.call(prototype, '_meta')) {
       // inject meta data
       Object.defineProperty(prototype, '_meta', {
@@ -22,6 +27,7 @@ function _propertyDecorator(def: IPropertyMeta) {
       });
     }
 
+    // @ts-expect-error
     (prototype._meta as IComponentMeta).properties.set(key, def);
 
     // make it a getter and setter
@@ -36,16 +42,16 @@ function _propertyDecorator(def: IPropertyMeta) {
           const oldValue = this[_stashKey];
           this[_stashKey] = value;
 
-          this.requestUpdate(key, oldValue);
+          if (def.onSet) def.onSet.call(this, key, value, oldValue);
+
+          const _sru = def.shouldRequestUpdate ? def.shouldRequestUpdate.call(this, key, value, oldValue) : true;
+          if (_sru) {
+            this.requestUpdate(key, oldValue);
+          }
         },
       },
     });
   };
-}
-
-// property decorator
-export function Reactive(def: IPropertyMeta = {}) {
-  return _propertyDecorator({ ...def });
 }
 
 // class decorator
@@ -239,6 +245,10 @@ export class Component<C = any, P extends IProps = any> {
   private _doInit() {
     if (this._initted) return;
 
+    for (const [key, meta] of this.meta.properties) {
+      if (meta.onInit) meta.onInit.call(this, key);
+    }
+
     this._inLifecycle = 'onInit';
     this.onInit();
 
@@ -256,6 +266,10 @@ export class Component<C = any, P extends IProps = any> {
         node._ins._doDestroy();
         node._ins = null;
       }
+    }
+
+    for (const [key, meta] of this.meta.properties) {
+      if (meta.onDestroy) meta.onDestroy.call(this, key);
     }
 
     this._changes.clear();
