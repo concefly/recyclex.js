@@ -10,6 +10,7 @@ export interface IPropertyMeta {
   onDestroy?(key: string): any;
   onSet?(key: string, value: any, oldValue?: any): any;
   shouldRequestUpdate?(key: string, value: any, oldValue?: any): boolean;
+  disableTransition?: boolean;
 }
 
 export interface IComponentMeta {
@@ -168,9 +169,7 @@ export class Component<C = any, P extends IProps = any> {
     if (_equals(oldValue, _curValue)) return; // no change
 
     this._updateQueue.push({ key, oldValue });
-
-    // 设置单个属性都是异步的
-    this._schedule(true);
+    this._schedule(!_def.disableTransition);
   }
 
   dispatch(datas: Partial<P>): void;
@@ -188,7 +187,7 @@ export class Component<C = any, P extends IProps = any> {
     this._schedule();
   }
 
-  private _schedule(transition?: boolean) {
+  protected _schedule(transition?: boolean) {
     if (!this._initted || this._inLifecycle === 'onDestroy') return;
     if (this._updateQueue.length === 0) return;
 
