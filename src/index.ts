@@ -9,6 +9,7 @@ export interface IPropertyMeta {
   onInit?(key: string): any;
   onDestroy?(key: string): any;
   onSet?(key: string, value: any, oldValue?: any): any;
+  onChange?(key: string, value: any, oldValue?: any): any;
   shouldRequestUpdate?(key: string, value: any, oldValue?: any): boolean;
   disableTransition?: boolean;
 }
@@ -32,9 +33,10 @@ export function Reactive<T extends Component, K extends string>(def: IPropertyMe
     (prototype._meta as IComponentMeta).properties.set(key, def);
 
     // make it a getter and setter
-    const _stashKey = `_${key}`;
+    const _stashKey = `_$${key}`;
 
     Object.defineProperties(prototype, {
+      [_stashKey]: { writable: true, enumerable: false, configurable: false },
       [key]: {
         get() {
           return this[_stashKey];
@@ -45,8 +47,13 @@ export function Reactive<T extends Component, K extends string>(def: IPropertyMe
 
           if (def.onSet) def.onSet.call(this, key, value, oldValue);
 
+          const _equals = def.isEquals || Options.isEqual;
+          if (_equals(oldValue, value)) return; // no change
+
+          if (def.onChange) def.onChange.call(this, key, value, oldValue);
+
           const _sru = def.shouldRequestUpdate ? def.shouldRequestUpdate.call(this, key, value, oldValue) : true;
-          if (_sru) {
+          if (_sru && typeof this.requestUpdate === 'function') {
             this.requestUpdate(key, oldValue);
           }
         },
@@ -162,11 +169,6 @@ export class Component<C = any, P extends IProps = any> {
 
     const _def = this.meta.properties.get(key);
     if (!_def) throw new Error(`property "${key}" not found`);
-
-    const _equals = _def.isEquals || Options.isEqual;
-    const _curValue = (this as any)[key];
-
-    if (_equals(oldValue, _curValue)) return; // no change
 
     this._updateQueue.push({ key, oldValue });
     this._schedule(!_def.disableTransition);

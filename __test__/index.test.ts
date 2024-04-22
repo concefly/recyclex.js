@@ -292,3 +292,33 @@ it('batch set props in async', done => {
     done();
   }, 100);
 });
+
+it('standalone component', () => {
+  const timelines: string[] = [];
+
+  class Standalone {
+    @Reactive({
+      onChange(key, value, oldValue) {
+        timelines.push(`Reactive.onChange: key=${key} value=${value} oldValue=${oldValue}`);
+      },
+    })
+    name = 'TOM';
+
+    requestUpdate(key: string, oldValue?: any) {
+      timelines.push(`requestUpdate: key=${key} old=${oldValue}`);
+    }
+  }
+
+  const standalone = new Standalone();
+  standalone.name = 'J1';
+  standalone.name = 'J2';
+
+  expect(timelines).toEqual([
+    'Reactive.onChange: key=name value=TOM oldValue=undefined',
+    'requestUpdate: key=name old=undefined',
+    'Reactive.onChange: key=name value=J1 oldValue=TOM',
+    'requestUpdate: key=name old=TOM',
+    'Reactive.onChange: key=name value=J2 oldValue=J1',
+    'requestUpdate: key=name old=J1',
+  ]);
+});
