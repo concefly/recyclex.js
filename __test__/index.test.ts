@@ -1,6 +1,10 @@
-// @ts-nocheck
+import { Component, Reactive, ComponentRegistry, Blueprint, getComponent } from '../src';
 
-import { Component, Host, Reactive, ComponentRegistry, State, Blueprint } from '../src';
+declare module '../src' {
+  interface IComponentInfoMap {
+    [key: string]: any;
+  }
+}
 
 class TestComp extends Component {
   stringify(desc: string): string {
@@ -32,8 +36,8 @@ it('meta data', () => {
     color2 = 'blue';
   }
 
-  const a = new A(ComponentRegistry.Default);
-  const b = new B(ComponentRegistry.Default);
+  const a = new A(null);
+  const b = new B(null);
 
   const aMeta = a.meta;
   const bMeta = b.meta;
@@ -117,7 +121,7 @@ it('life cycle', () => {
   registry.register('A', A);
   registry.register('B', B);
 
-  const host = new Host('A', registry);
+  const host = getComponent('A', {}, null, registry);
   host.dispatch({});
   expect(timelines).toMatchSnapshot('with initial values');
 
@@ -142,7 +146,7 @@ it('equals check', () => {
   }
 
   registry.register('A', A);
-  const host = new Host('A', registry);
+  const host = getComponent('A', {}, null, registry);
 
   host.dispatch({ name: 'TOM' });
   host.dispatch({ name: 'JANE' });
@@ -158,15 +162,14 @@ it('Cannot call requestUpdate in onUpdate', () => {
     @Reactive()
     name = '';
 
-    onUpdate(): Blueprint[] {
+    onUpdate() {
       this.dispatch({ name: 'JANE' });
     }
   }
 
   registry.register('A', A);
-  const host = new Host('A', registry);
 
-  expect(() => host.dispatch({ name: 'TOM' })).toThrow('Cannot requestUpdate onUpdate: key=name');
+  expect(() => getComponent('A', {}, null, registry)).toThrow('Cannot requestUpdate onUpdate: key=name');
 });
 
 it('set props on lifecycle', () => {
@@ -192,7 +195,7 @@ it('set props on lifecycle', () => {
   }
 
   registry.register('A', A);
-  const host = new Host('A', registry);
+  const host = getComponent('A', {}, null, registry);
 
   host.dispatch({});
   expect(timelines).toEqual(['<A> receive: name=JANE2, color=RED,']);
@@ -230,7 +233,7 @@ it('keys lifecycle', () => {
   registry.register('A', A);
   registry.register('B', B);
 
-  const host = new Host('A', registry);
+  const host = getComponent('A', {}, null, registry);
 
   host.dispatch({
     datas: [
@@ -263,36 +266,6 @@ it('keys lifecycle', () => {
   ]);
 });
 
-it('batch set props in async', done => {
-  const registry = new ComponentRegistry();
-  const timelines: string[] = [];
-
-  class A extends TestComp {
-    @Reactive() name = '';
-    @Reactive() color = '';
-
-    onInit(): void {
-      setTimeout(() => {
-        this.name = 'JANE';
-        this.color = 'BLUE';
-      }, 0);
-    }
-
-    onUpdate() {
-      timelines.push(this.stringify('receive:'));
-    }
-  }
-
-  registry.register('A', A);
-  const host = new Host('A', registry);
-  host.dispatch({});
-
-  setTimeout(() => {
-    expect(timelines).toEqual(['<A> receive: name=, color=,', '<A> receive: name=JANE, color=BLUE,']);
-    done();
-  }, 100);
-});
-
 it('standalone component', () => {
   const timelines: string[] = [];
 
@@ -320,5 +293,55 @@ it('standalone component', () => {
     'requestUpdate: key=name old=TOM',
     'Reactive.onChange: key=name value=J2 oldValue=J1',
     'requestUpdate: key=name old=J1',
+  ]);
+});
+
+it('standalone component (extends)', () => {
+  const timelines: string[] = [];
+
+  class Standalone extends TestComp {
+    @Reactive() name = 'TOM';
+
+    onInit(): void {
+      timelines.push(this.stringify('onInit'));
+    }
+
+    protected onBeforeUpdate(): void {
+      timelines.push(this.stringify('onBeforeUpdate'));
+    }
+
+    protected onAfterUpdate(): void {
+      timelines.push(this.stringify('onAfterUpdate'));
+    }
+
+    protected onUpdate(): void {
+      timelines.push(this.stringify('onUpdate'));
+    }
+
+    protected onDestroy(): void {
+      timelines.push(this.stringify('onDestroy'));
+    }
+  }
+
+  const ins = new Standalone(null);
+  ins.init();
+
+  ins.name = 'J1';
+  ins.name = 'J2';
+
+  ins.destroy();
+
+  expect(timelines).toEqual([
+    '<Standalone> onInit name=TOM,',
+    '<Standalone> onBeforeUpdate name=TOM,',
+    '<Standalone> onUpdate name=TOM,',
+    '<Standalone> onAfterUpdate name=TOM,',
+    '<Standalone> onBeforeUpdate name=J1,',
+    '<Standalone> onUpdate name=J1,',
+    '<Standalone> onAfterUpdate name=J1,',
+    '<Standalone> onBeforeUpdate name=J2,',
+    '<Standalone> onUpdate name=J2,',
+    '<Standalone> onAfterUpdate name=J2,',
+    '<Standalone> onDestroy name=J2,',
   ]);
 });

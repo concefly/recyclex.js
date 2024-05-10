@@ -1,7 +1,7 @@
 export type IProps = Record<string, any>;
 
 export interface ComponentType {
-  new (registry: ComponentRegistry, context?: any): Component;
+  new (context: any, registry?: ComponentRegistry): Component;
 }
 
 export interface IPropertyMeta {
@@ -11,7 +11,6 @@ export interface IPropertyMeta {
   onSet?(key: string, value: any, oldValue?: any): any;
   onChange?(key: string, value: any, oldValue?: any): any;
   shouldRequestUpdate?(key: string, value: any, oldValue?: any): boolean;
-  disableTransition?: boolean;
 }
 
 export interface IComponentMeta {
@@ -19,7 +18,7 @@ export interface IComponentMeta {
 }
 
 // property decorator
-export function Reactive<T extends Component, K extends string>(def: IPropertyMeta = {}) {
+export function Reactive<T, K extends string>(def: IPropertyMeta = {}) {
   return function (prototype: T, key: K) {
     if (!Object.prototype.hasOwnProperty.call(prototype, '_meta')) {
       // inject meta data
@@ -89,7 +88,7 @@ export const Options: {
 };
 
 export class Blueprint {
-  static of<C extends keyof IComponentInfoMap>(type: C, props: IComponentInfoMap[C], key?: string): Blueprint {
+  static of<T extends keyof IComponentInfoMap>(type: T, props: IComponentInfoMap[T], key?: string): Blueprint {
     return new Blueprint(type as any, props, key || '');
   }
 
@@ -118,23 +117,19 @@ export class Blueprint {
   }
 }
 
-export class Component<C = any, P extends IProps = any> {
+export class Component<CT = any, P extends IProps = any> {
   constructor(
-    private _registry: ComponentRegistry,
-    protected context: C = null as any
+    protected context: CT,
+    private _registry = ComponentRegistry.Default
   ) {}
 
   protected _changes = new Map<keyof P, any>();
 
-  onInit() {}
-  onDestroy() {}
-
-  onBeforeUpdate() {}
-  onAfterUpdate() {}
-
-  onUpdate(): any {
-    return [];
-  }
+  protected onInit() {}
+  protected onBeforeUpdate() {}
+  protected onUpdate(): any {}
+  protected onAfterUpdate() {}
+  protected onDestroy() {}
 
   get meta(): IComponentMeta {
     if (this._metaCache) return this._metaCache;
@@ -152,13 +147,13 @@ export class Component<C = any, P extends IProps = any> {
     return this._initted;
   }
 
+  private _noPropertySchedule = false;
   private _metaCache: IComponentMeta | null = null;
   private _initted = false;
   private _lastNodes: Blueprint[] = [];
   private readonly _updateQueue: { key: string; oldValue?: any }[] = [];
 
   private _inLifecycle: null | 'onInit' | 'onBeforeUpdate' | 'onUpdate' | 'onAfterUpdate' | 'onDestroy' = null;
-  private _pending: Promise<void> | null = null;
 
   protected requestUpdate(key: string, oldValue?: any) {
     if (this._inLifecycle === 'onDestroy') return; // do nothing
@@ -171,12 +166,17 @@ export class Component<C = any, P extends IProps = any> {
     if (!_def) throw new Error(`property "${key}" not found`);
 
     this._updateQueue.push({ key, oldValue });
-    this._schedule(!_def.disableTransition);
+
+    if (this._noPropertySchedule) return;
+
+    this._schedule();
   }
 
   dispatch(datas: Partial<P>): void;
   dispatch(cb: () => any): void;
   dispatch(arg: any) {
+    this._noPropertySchedule = true;
+
     if (typeof arg === 'function') {
       arg.call(this);
     } else {
@@ -186,27 +186,18 @@ export class Component<C = any, P extends IProps = any> {
       }
     }
 
+    this._noPropertySchedule = false;
     this._schedule();
   }
 
-  protected _schedule(transition?: boolean) {
+  protected _schedule() {
     if (!this._initted || this._inLifecycle === 'onDestroy') return;
     if (this._updateQueue.length === 0) return;
 
-    if (transition) {
-      if (!this._pending) {
-        this._pending = Promise.resolve().then(() => {
-          this._pending = null;
-          this._doUpdate();
-        });
-      }
-    } else {
-      this._pending = null;
-      this._doUpdate();
-    }
+    this.update();
   }
 
-  private _doUpdate() {
+  update() {
     if (this._inLifecycle) throw new Error('Cannot update in lifecycle: ' + this._inLifecycle);
 
     const queue = this._updateQueue.concat();
@@ -243,7 +234,7 @@ export class Component<C = any, P extends IProps = any> {
     this._inLifecycle = null;
   }
 
-  private _doInit() {
+  init() {
     if (this._initted) return;
 
     for (const [key, meta] of this.meta.properties) {
@@ -259,12 +250,12 @@ export class Component<C = any, P extends IProps = any> {
     this._schedule();
   }
 
-  private _doDestroy() {
+  destroy() {
     this._inLifecycle = 'onDestroy';
 
     for (const node of this._lastNodes) {
       if (node._ins) {
-        node._ins._doDestroy();
+        node._ins.destroy();
         node._ins = null;
       }
     }
@@ -285,21 +276,20 @@ export class Component<C = any, P extends IProps = any> {
   private _diff(newNodes: Blueprint[]) {
     const _destroy = (node: Blueprint) => {
       if (node._ins) {
-        node._ins._doDestroy();
+        node._ins.destroy();
         node._ins = null;
       }
     };
 
     const _create = (node: Blueprint) => {
-      // @ts-expect-error
-      const Type = this._registry.get(node.type);
+      const Type = (this._registry as any).get(node.type);
       if (!Type) throw new Error(`component "${node.type}" not found`);
 
-      const _ins = new Type(this._registry, this.context);
+      const _ins = new Type(this.context, this._registry);
       node._ins = _ins;
 
       _ins.dispatch(node.props);
-      _ins._doInit();
+      _ins.init();
     };
 
     const oldNodes = this._lastNodes;
@@ -359,36 +349,21 @@ export class Component<C = any, P extends IProps = any> {
   }
 }
 
-export class Host<C extends keyof IComponentInfoMap, C2 = any> {
-  private _registry: ComponentRegistry;
-  private _comp: Component;
+export function getComponent<T extends keyof IComponentInfoMap, CT = any>(
+  comp: T,
+  props: IComponentInfoMap[T],
+  context: CT,
+  registry = ComponentRegistry.Default
+) {
+  const Type = registry.get(comp);
+  if (!Type) throw new Error(`component "${comp}" not found`);
 
-  constructor(root: C, registry = ComponentRegistry.Default, context?: C2) {
-    this._registry = registry;
+  const ins = new Type(context, registry) as Component<CT, IComponentInfoMap[T]>;
 
-    const Type = registry.get(root);
-    if (!Type) throw new Error(`component "${root}" not found`);
+  ins.dispatch(props);
+  ins.init();
 
-    this._comp = new Type(this._registry, context);
-  }
-
-  get component() {
-    return this._comp;
-  }
-
-  dispatch(props?: IComponentInfoMap[C]) {
-    if (props) this._comp.dispatch(props);
-
-    if (!this._comp.initted) {
-      // @ts-expect-error
-      this._comp._doInit();
-    }
-  }
-
-  destroy() {
-    // @ts-expect-error
-    this._comp._doDestroy();
-  }
+  return ins;
 }
 
 export interface IComponentInfoMap {}
@@ -398,11 +373,11 @@ export class ComponentRegistry {
 
   private _map = new Map<string, ComponentType>();
 
-  register<C extends keyof IComponentInfoMap>(name: C, Type: ComponentType) {
-    this._map.set(name, Type);
+  register<T extends keyof IComponentInfoMap>(name: T, Type: ComponentType) {
+    this._map.set(name as any, Type);
   }
 
-  get<C extends keyof IComponentInfoMap>(name: C): ComponentType | undefined {
-    return this._map.get(name);
+  get<T extends keyof IComponentInfoMap>(name: T): ComponentType | undefined {
+    return this._map.get(name as any);
   }
 }
