@@ -117,13 +117,17 @@ export class Blueprint {
   }
 }
 
+/**
+ * 响应式组件
+ */
 export class Component<CT = any, P extends IProps = any> {
   constructor(
-    protected context: CT,
+    public context: CT,
     private _registry = ComponentRegistry.Default
   ) {}
 
-  protected _changes = new Map<keyof P, any>();
+  public _changes = new Map<keyof P, any>();
+  protected _controllers: IController[] = [];
 
   protected onInit() {}
   protected onBeforeUpdate() {}
@@ -155,15 +159,12 @@ export class Component<CT = any, P extends IProps = any> {
 
   private _inLifecycle: null | 'onInit' | 'onBeforeUpdate' | 'onUpdate' | 'onAfterUpdate' | 'onDestroy' = null;
 
-  protected requestUpdate(key: string, oldValue?: any) {
+  requestUpdate(key: string, oldValue?: any) {
     if (this._inLifecycle === 'onDestroy') return; // do nothing
 
     if (this._inLifecycle === 'onAfterUpdate' || this._inLifecycle === 'onBeforeUpdate' || this._inLifecycle === 'onUpdate') {
       throw new Error(`Cannot requestUpdate ${this._inLifecycle}: key=${key}`);
     }
-
-    const _def = this.meta.properties.get(key);
-    if (!_def) throw new Error(`property "${key}" not found`);
 
     this._updateQueue.push({ key, oldValue });
 
@@ -211,11 +212,30 @@ export class Component<CT = any, P extends IProps = any> {
     if (this._changes.size === 0) return; // no change
 
     this._inLifecycle = 'onBeforeUpdate';
+
+    // tap controllers
+    for (const ctrl of this._controllers) {
+      ctrl.onBeforeUpdate?.();
+    }
+
     this.onBeforeUpdate();
     this._inLifecycle = null;
 
     this._inLifecycle = 'onUpdate';
-    const vnodes = Blueprint.cast(this.onUpdate());
+
+    // tap controllers
+    for (const ctrl of this._controllers) {
+      ctrl.onUpdate?.();
+    }
+
+    let vnodes = Blueprint.cast(this.onUpdate());
+
+    for (const ctrl of this._controllers) {
+      if (ctrl.onMutateBlueprints) {
+        vnodes = ctrl.onMutateBlueprints(vnodes);
+      }
+    }
+
     this._inLifecycle = null;
 
     // fill node key
@@ -230,6 +250,12 @@ export class Component<CT = any, P extends IProps = any> {
     this._diff(vnodes);
 
     this._inLifecycle = 'onAfterUpdate';
+
+    // tap controllers
+    for (const ctrl of this._controllers) {
+      ctrl.onAfterUpdate?.();
+    }
+
     this.onAfterUpdate();
     this._inLifecycle = null;
   }
@@ -242,6 +268,12 @@ export class Component<CT = any, P extends IProps = any> {
     }
 
     this._inLifecycle = 'onInit';
+
+    // tap controllers
+    for (const ctrl of this._controllers) {
+      ctrl.onInit?.();
+    }
+
     this.onInit();
 
     this._inLifecycle = null;
@@ -268,6 +300,12 @@ export class Component<CT = any, P extends IProps = any> {
     this._metaCache = null;
     this._lastNodes.length = 0;
     this._updateQueue.length = 0;
+
+    // tap controllers
+    for (const ctrl of this._controllers) {
+      ctrl.onDestroy?.();
+    }
+
     this.onDestroy();
 
     this._inLifecycle = null;
@@ -348,6 +386,19 @@ export class Component<CT = any, P extends IProps = any> {
     this._lastNodes = newNodes;
   }
 }
+
+/**
+ * 控制器
+ */
+export type IController = {
+  onInit?(): any;
+  onBeforeUpdate?(): any;
+  onUpdate?(): any;
+  onAfterUpdate?(): any;
+  onDestroy?(): any;
+
+  onMutateBlueprints?(list: Blueprint[]): Blueprint[];
+};
 
 export function getComponent<T extends keyof IComponentInfoMap, CT = any>(
   comp: T,
