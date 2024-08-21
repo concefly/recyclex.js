@@ -420,7 +420,15 @@ export function getComponent<T extends keyof IComponentInfoMap, CT = any>(
 export interface IComponentInfoMap {}
 
 export class ComponentRegistry {
-  static Default = new ComponentRegistry();
+  static get Default() {
+    // @ts-expect-error
+    const _gl: any = typeof window !== 'undefined' ? window : global;
+    const key = 'RECYCLEX_COMPONENT_REGISTRY';
+
+    if (!_gl[key]) _gl[key] = new ComponentRegistry();
+
+    return _gl[key];
+  }
 
   private _map = new Map<string, ComponentType>();
 
