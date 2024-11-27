@@ -51,6 +51,9 @@ export function Reactive<T, K extends keyof T>(def: IPropertyMeta<K, T[K]> = {})
           // @ts-expect-error
           this[_stashKey] = value;
 
+          if (def.onSet) def.onSet.call(this, key, value, oldValue);
+
+          // use version check
           if (def.versionCheck) {
             // @ts-expect-error
             const oldVersion = this[_stashVersionKey];
@@ -62,10 +65,11 @@ export function Reactive<T, K extends keyof T>(def: IPropertyMeta<K, T[K]> = {})
             this[_stashVersionKey] = newVersion;
           }
 
-          if (def.onSet) def.onSet.call(this, key, value, oldValue);
-
-          const _equals = def.isEquals || Options.isEqual;
-          if (_equals(oldValue, value)) return; // no change
+          // use equal check
+          else {
+            const _equals = def.isEquals || Options.isEqual;
+            if (_equals(oldValue, value)) return; // no change
+          }
 
           if (def.onChange) def.onChange.call(this, key, value, oldValue);
 
