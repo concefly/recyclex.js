@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "test": "vitest",
-    "ci": "prettier --check src && tsc -p tsconfig.json --noEmit && npm run test",
+    "ci": "prettier --check src && tsc -p tsconfig.json --noEmit && vitest run",
     "build": "tsc -p tsconfig.build.json --outDir dist",
     "release": "npm run ci && rimraf -rf dist && npm run build && release-it"
   },
