@@ -441,6 +441,7 @@ export interface IComponentInfoMap {}
 
 export class ComponentRegistry {
   static get Default() {
+    // @ts-ignore
     const _gl: any = typeof window !== 'undefined' ? window : global;
     const key = 'RECYCLEX_COMPONENT_REGISTRY';
 
