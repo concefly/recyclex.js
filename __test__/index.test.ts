@@ -1,3 +1,4 @@
+import { it, expect } from 'vitest';
 import { Component, Reactive, ComponentRegistry, Blueprint, getComponent } from '../src';
 
 declare module '../src' {

@@ -1,9 +1,22 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`equals check 1`] = `
 [
   "<A> receive: name=TOM,",
   "<A> receive: name=JANE,",
+]
+`;
+
+exports[`life cycle > with initial values 1`] = `
+[
+  "<A> onInit name=Jam, color=red,",
+  "<A> onBeforeUpdate name=Jam, color=red,",
+  "<A> onUpdate name=Jam, color=red,",
+  "  <B> onInit text=Jam-red,",
+  "  <B> onBeforeUpdate text=Jam-red,",
+  "  <B> onUpdate text=Jam-red,",
+  "  <B> onAfterUpdate text=Jam-red,",
+  "<A> onAfterUpdate name=Jam, color=red,",
 ]
 `;
 
