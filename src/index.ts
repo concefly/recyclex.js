@@ -4,13 +4,15 @@ export interface ComponentType {
   new (context: any, registry?: ComponentRegistry): Component;
 }
 
-export interface IPropertyMeta {
-  isEquals?: (a: any, b: any) => boolean;
-  onInit?(key: string): any;
-  onDestroy?(key: string): any;
-  onSet?(key: string, value: any, oldValue?: any): any;
-  onChange?(key: string, value: any, oldValue?: any): any;
-  shouldRequestUpdate?(key: string, value: any, oldValue?: any): boolean;
+export interface IPropertyMeta<K = any, D = any> {
+  isEquals?: (a: D, b: D) => boolean;
+  onInit?(key: K): any;
+  onDestroy?(key: K): any;
+  onSet?(key: K, value: D, oldValue?: D): any;
+  onChange?(key: K, value: D, oldValue?: D): any;
+  shouldRequestUpdate?(key: K, value: D, oldValue?: D): boolean;
+
+  versionCheck?(value: D): string | number;
 }
 
 export interface IComponentMeta {
@@ -18,7 +20,7 @@ export interface IComponentMeta {
 }
 
 // property decorator
-export function Reactive<T, K extends string>(def: IPropertyMeta = {}) {
+export function Reactive<T, K extends keyof T>(def: IPropertyMeta<K, T[K]> = {}) {
   return function (prototype: T, key: K) {
     if (!Object.prototype.hasOwnProperty.call(prototype, '_meta')) {
       // inject meta data
@@ -32,17 +34,33 @@ export function Reactive<T, K extends string>(def: IPropertyMeta = {}) {
     (prototype._meta as IComponentMeta).properties.set(key, def);
 
     // make it a getter and setter
-    const _stashKey = `_$${key}`;
+    const _stashKey = `_$${String(key)}`;
+    const _stashVersionKey = `_$${String(key)}_version`;
 
     Object.defineProperties(prototype, {
       [_stashKey]: { writable: true, enumerable: false, configurable: false },
       [key]: {
-        get() {
+        get(): any {
+          // @ts-expect-error
           return this[_stashKey];
         },
-        set(value) {
+        set(value: any) {
+          // @ts-expect-error
           const oldValue = this[_stashKey];
+
+          // @ts-expect-error
           this[_stashKey] = value;
+
+          if (def.versionCheck) {
+            // @ts-expect-error
+            const oldVersion = this[_stashVersionKey];
+            const newVersion = def.versionCheck(value);
+
+            if (oldVersion === newVersion) return; // no change
+
+            // @ts-expect-error
+            this[_stashVersionKey] = newVersion;
+          }
 
           if (def.onSet) def.onSet.call(this, key, value, oldValue);
 
@@ -52,7 +70,9 @@ export function Reactive<T, K extends string>(def: IPropertyMeta = {}) {
           if (def.onChange) def.onChange.call(this, key, value, oldValue);
 
           const _sru = def.shouldRequestUpdate ? def.shouldRequestUpdate.call(this, key, value, oldValue) : true;
+          // @ts-expect-error
           if (_sru && typeof this.requestUpdate === 'function') {
+            // @ts-expect-error
             this.requestUpdate(key, oldValue);
           }
         },
@@ -421,7 +441,6 @@ export interface IComponentInfoMap {}
 
 export class ComponentRegistry {
   static get Default() {
-    // @ts-expect-error
     const _gl: any = typeof window !== 'undefined' ? window : global;
     const key = 'RECYCLEX_COMPONENT_REGISTRY';
 

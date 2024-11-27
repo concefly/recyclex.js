@@ -8,12 +8,16 @@ declare module '../src' {
 }
 
 class TestComp extends Component {
-  stringify(desc: string): string {
+  stringify(desc: string, json?: boolean): string {
     let text = `<${this.constructor.name}> ${desc}`;
     const meta = this.meta;
 
     for (const [key] of meta.properties) {
-      text += ` ${key}=${(this as any)[key] + ''},`;
+      if (json) {
+        text += ` ${key}=${JSON.stringify((this as any)[key])},`;
+      } else {
+        text += ` ${key}=${(this as any)[key] + ''},`;
+      }
     }
 
     return text;
@@ -386,4 +390,34 @@ it('standalone component (extends)', () => {
     '<Standalone> onAfterUpdate name=J2,',
     '<Standalone> onDestroy name=J2,',
   ]);
+});
+
+it('version check', () => {
+  const registry = new ComponentRegistry();
+  const timelines: string[] = [];
+
+  class A extends TestComp {
+    @Reactive({ versionCheck: v => v.a }) data = { a: 1 };
+
+    onBeforeUpdate(): void {
+      timelines.push(this.stringify('receive:', true));
+    }
+  }
+
+  registry.register('A', A);
+  const host = getComponent('A', {}, null, registry);
+
+  host.dispatch({ data: { a: 1 } });
+  host.dispatch({ data: { a: 1 } });
+  host.dispatch({ data: { a: 1 } });
+  host.dispatch({ data: { a: 2 } });
+  host.dispatch({ data: { a: 2 } });
+  host.dispatch({ data: { a: 2 } });
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "<A> receive: data={"a":1},",
+      "<A> receive: data={"a":2},",
+    ]
+  `);
 });
