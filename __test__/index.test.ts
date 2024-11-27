@@ -124,13 +124,49 @@ it('life cycle', () => {
 
   const host = getComponent('A', {}, null, registry);
   host.dispatch({});
-  expect(timelines).toMatchSnapshot('with initial values');
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "<A> onInit name=Jam, color=red,",
+      "<A> onBeforeUpdate name=Jam, color=red,",
+      "<A> onUpdate name=Jam, color=red,",
+      "  <B> onInit text=Jam-red,",
+      "  <B> onBeforeUpdate text=Jam-red,",
+      "  <B> onUpdate text=Jam-red,",
+      "  <B> onAfterUpdate text=Jam-red,",
+      "<A> onAfterUpdate name=Jam, color=red,",
+    ]
+  `);
 
   host.dispatch({ name: 'Tom' });
   host.dispatch({ name: 'Jane' });
   host.destroy();
 
-  expect(timelines).toMatchSnapshot();
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "<A> onInit name=Jam, color=red,",
+      "<A> onBeforeUpdate name=Jam, color=red,",
+      "<A> onUpdate name=Jam, color=red,",
+      "  <B> onInit text=Jam-red,",
+      "  <B> onBeforeUpdate text=Jam-red,",
+      "  <B> onUpdate text=Jam-red,",
+      "  <B> onAfterUpdate text=Jam-red,",
+      "<A> onAfterUpdate name=Jam, color=red,",
+      "<A> onBeforeUpdate name=Tom, color=red,",
+      "<A> onUpdate name=Tom, color=red,",
+      "  <B> onBeforeUpdate text=Tom-red,",
+      "  <B> onUpdate text=Tom-red,",
+      "  <B> onAfterUpdate text=Tom-red,",
+      "<A> onAfterUpdate name=Tom, color=red,",
+      "<A> onBeforeUpdate name=Jane, color=red,",
+      "<A> onUpdate name=Jane, color=red,",
+      "  <B> onBeforeUpdate text=Jane-red,",
+      "  <B> onUpdate text=Jane-red,",
+      "  <B> onAfterUpdate text=Jane-red,",
+      "<A> onAfterUpdate name=Jane, color=red,",
+      "  <B> onDestroy text=Jane-red,",
+      "<A> onDestroy name=Jane, color=red,",
+    ]
+  `);
 });
 
 it('equals check', () => {
@@ -153,7 +189,12 @@ it('equals check', () => {
   host.dispatch({ name: 'JANE' });
   host.dispatch({ name: 'JANE' });
 
-  expect(timelines).toMatchSnapshot();
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "<A> receive: name=TOM,",
+      "<A> receive: name=JANE,",
+    ]
+  `);
 });
 
 it('Cannot call requestUpdate in onUpdate', () => {
