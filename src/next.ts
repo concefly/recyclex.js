@@ -1,13 +1,8 @@
-export type Blueprint<P extends Record<string, any> = any> = {
-  factory: IComponentFactory<P>;
-  props: P;
-  key: string;
-};
+export type Blueprint<P extends Record<string, any> = any> = { factory: IComponentFactory<P>; props: P; key: string };
 
 export type IContextDefinition<K extends string, T> = { key: K; defaultValue: T };
 
 export type IController = {
-  onInit?(): any;
   onBeforeUpdate?(): any;
   onUpdate?(): any;
   onAfterUpdate?(): any;
@@ -15,6 +10,8 @@ export type IController = {
 
   onMutateBlueprints?(list: Blueprint[]): Blueprint[];
 };
+
+export type IControllerFactory = (ins: IComponentInstance<any>) => IController;
 
 export type IOnBeforeUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => void;
 export type IOnUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => Blueprint[] | void;
@@ -35,6 +32,7 @@ export type ISetupCallback<P extends Record<string, any>> = (ctx: {
 export interface IComponentDefinition<P extends Record<string, any>> {
   defaultProps: P;
   setup: ISetupCallback<P>;
+  controllers?: IControllerFactory[];
 }
 
 export interface IComponentFactory<P extends Record<string, any>> {
@@ -103,6 +101,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     };
 
     // setup
+    const controllers = def.controllers?.map(factory => factory(instance)) ?? [];
     const onDisposeCB = def.setup(ctx);
 
     let disposed = false;
@@ -122,6 +121,10 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
 
     const _disposeChild = (child: _IChild) => {
       if (child.ins) {
+        for (const ctrl of controllers) {
+          ctrl.onDestroy?.();
+        }
+
         child.ins.dispose();
         child.ins = undefined;
       }
@@ -156,9 +159,26 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       oldChildMap.clear();
       newChildMap.clear();
 
+      for (const ctrl of controllers) {
+        ctrl.onBeforeUpdate?.();
+      }
       ctx.onBeforeUpdate?.(newProps, changes);
 
-      const nextChildren = (ctx.onUpdate?.(newProps, changes) ?? []) as _IChild[];
+      for (const ctrl of controllers) {
+        ctrl.onUpdate?.();
+      }
+
+      let nextChildren = (ctx.onUpdate?.(newProps, changes) ?? []) as _IChild[];
+
+      for (const ctrl of controllers) {
+        if (ctrl.onMutateBlueprints) {
+          nextChildren = ctrl.onMutateBlueprints(nextChildren);
+        }
+      }
+
+      for (const ctrl of controllers) {
+        ctrl.onAfterUpdate?.();
+      }
       ctx.onAfterUpdate?.(newProps, changes);
 
       for (const c of children) oldChildMap.set(c.key, c);
