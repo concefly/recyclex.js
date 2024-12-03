@@ -1,13 +1,15 @@
-export type IOptions = {
-  isEqual: (a: any, b: any) => boolean;
-  getVersion: (v: any) => string | number;
-  useVersionCheck: string[];
+export type IOptions<_K, V> = {
+  isEqual: (a?: V, b?: V) => boolean;
+  getVersion: (v: V) => string | number;
+  useVersionCheck: boolean;
 };
 
-export const DefaultOptions: IOptions = {
+export type IOptionsMap<P> = { [K in keyof P]?: Partial<IOptions<K, P[K]>> };
+
+export const DefaultOptions: IOptions<string, any> = {
   isEqual: (a, b) => a === b,
   getVersion: () => 0,
-  useVersionCheck: [],
+  useVersionCheck: false,
 };
 
 export type Blueprint<P extends Record<string, any> = any> = { factory: IComponentFactory<P>; props: P; key: string };
@@ -31,6 +33,9 @@ export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes
 
 export type IOnDisposeCB = () => void;
 
+export type ICreateContextCB = <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
+export type IGetContextCB = <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
+
 export type ISetupCallback<P extends Record<string, any>> = (ctx: {
   key: string;
 
@@ -40,15 +45,15 @@ export type ISetupCallback<P extends Record<string, any>> = (ctx: {
   onUpdate: IOnUpdateCB<P>;
   onAfterUpdate: IOnAfterUpdateCB<P>;
 
-  createContext: <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
-  getContext: <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
+  createContext: ICreateContextCB;
+  getContext: IGetContextCB;
 }) => IOnDisposeCB;
 
 export interface IComponentDefinition<P extends Record<string, any>> {
   defaultProps: P;
   setup: ISetupCallback<P>;
   controllers?: IControllerFactory[];
-  options?: IOptions;
+  options?: IOptionsMap<P>;
 }
 
 export interface IComponentFactory<P extends Record<string, any>> {
@@ -61,6 +66,9 @@ export interface IComponentInstance<P extends Record<string, any>> {
   parent?: IComponentInstance<any>;
 
   contextStore: Map<string, any>;
+
+  createContext: ICreateContextCB;
+  getContext: IGetContextCB;
 
   update(newProps: P): void;
   dispose(): void;
@@ -84,7 +92,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
 
   const create = (key: string, initProps: P = def.defaultProps, parent?: IComponentInstance<any>) => {
     const contextStore = new Map<string, any>();
-    const instance: IComponentInstance<P> = { key, contextStore, parent, update, dispose };
+    const instance: IComponentInstance<P> = { key, contextStore, parent, createContext, getContext, update, dispose };
 
     const ctx: Parameters<ISetupCallback<P>>[0] = {
       key,
@@ -93,31 +101,9 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       onUpdate: () => {},
       onAfterUpdate: () => {},
 
-      createContext: key => {
-        if (contextStore.has(key.key)) throw new Error('key already exists');
-        const rst = { value: key.defaultValue };
-        contextStore.set(key.key, rst);
-        return rst;
-      },
-
-      getContext: key => {
-        if (contextStore.has(key.key)) return contextStore.get(key.key);
-
-        let cur = parent;
-
-        while (cur) {
-          if (cur.contextStore.has(key.key)) {
-            return cur.contextStore.get(key.key);
-          }
-
-          cur = cur.parent;
-        }
-
-        throw new Error('key not exists');
-      },
+      createContext,
+      getContext,
     };
-
-    const options = def.options ?? DefaultOptions;
 
     // setup
     const controllers = def.controllers?.map(factory => factory(instance)) ?? [];
@@ -154,6 +140,29 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       child.ins = child.factory.create(child.key, child.props, instance);
     };
 
+    function createContext(key: IContextDefinition<string, any>) {
+      if (contextStore.has(key.key)) throw new Error('key already exists');
+      const rst = { value: key.defaultValue };
+      contextStore.set(key.key, rst);
+      return rst;
+    }
+
+    function getContext(key: IContextDefinition<string, any>) {
+      if (contextStore.has(key.key)) return contextStore.get(key.key);
+
+      let cur = parent;
+
+      while (cur) {
+        if (cur.contextStore.has(key.key)) {
+          return cur.contextStore.get(key.key);
+        }
+
+        cur = cur.parent;
+      }
+
+      return key.defaultValue;
+    }
+
     function update(newProps: P) {
       if (disposed) throw new Error('Already disposed');
 
@@ -167,10 +176,12 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       let newVersions: any = {};
 
       for (const k of commonKeys) {
+        const getVersion = def.options?.[k]?.getVersion ?? DefaultOptions.getVersion;
+        const isEqual = def.options?.[k]?.isEqual ?? DefaultOptions.isEqual;
+        const useVersionCheck = def.options?.[k]?.useVersionCheck ?? DefaultOptions.useVersionCheck;
+
         const oldVal = oldProps[k];
         const newVal = newProps[k];
-
-        const useVersionCheck = options.useVersionCheck.includes(k);
 
         let toCompareA: any;
         let toCompareB: any;
@@ -178,14 +189,14 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
         if (useVersionCheck) {
           toCompareA = oldVersions[k];
 
-          newVersions[k] = options.getVersion(newVal);
+          newVersions[k] = getVersion(newVal);
           toCompareB = newVersions[k];
         } else {
           toCompareA = oldVal;
           toCompareB = newVal;
         }
 
-        if (!options.isEqual(toCompareA, toCompareB)) {
+        if (!isEqual(toCompareA, toCompareB)) {
           changes.set(k, oldVal);
         }
       }
