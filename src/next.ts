@@ -1,3 +1,15 @@
+export type IOptions = {
+  isEqual: (a: any, b: any) => boolean;
+  getVersion: (v: any) => string | number;
+  useVersionCheck: string[];
+};
+
+export const DefaultOptions: IOptions = {
+  isEqual: (a, b) => a === b,
+  getVersion: () => 0,
+  useVersionCheck: [],
+};
+
 export type Blueprint<P extends Record<string, any> = any> = { factory: IComponentFactory<P>; props: P; key: string };
 
 export type IContextDefinition<K extends string, T> = { key: K; defaultValue: T };
@@ -33,6 +45,7 @@ export interface IComponentDefinition<P extends Record<string, any>> {
   defaultProps: P;
   setup: ISetupCallback<P>;
   controllers?: IControllerFactory[];
+  options?: IOptions;
 }
 
 export interface IComponentFactory<P extends Record<string, any>> {
@@ -100,6 +113,8 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       },
     };
 
+    const options = def.options ?? DefaultOptions;
+
     // setup
     const controllers = def.controllers?.map(factory => factory(instance)) ?? [];
     const onDisposeCB = def.setup(ctx);
@@ -111,6 +126,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     const changes = new Map<string, any>();
 
     let oldProps: any = {};
+    let oldVersions: any = {};
 
     const oldChildMap = new Map<string, _IChild>();
     const newChildMap = new Map<string, _IChild>();
@@ -144,11 +160,28 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       for (const k of Object.keys(oldProps)) commonKeys.add(k);
       for (const k of Object.keys(newProps)) commonKeys.add(k);
 
+      let newVersions: any = {};
+
       for (const k of commonKeys) {
         const oldVal = oldProps[k];
         const newVal = newProps[k];
 
-        if (oldVal !== newVal) {
+        const useVersionCheck = options.useVersionCheck.includes(k);
+
+        let toCompareA: any;
+        let toCompareB: any;
+
+        if (useVersionCheck) {
+          toCompareA = oldVersions[k];
+
+          newVersions[k] = options.getVersion(newVal);
+          toCompareB = newVersions[k];
+        } else {
+          toCompareA = oldVal;
+          toCompareB = newVal;
+        }
+
+        if (!options.isEqual(toCompareA, toCompareB)) {
           changes.set(k, oldVal);
         }
       }
@@ -243,6 +276,8 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       }
 
       oldProps = newProps;
+      oldVersions = newVersions;
+
       children = nextChildren;
     }
 
