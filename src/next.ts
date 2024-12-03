@@ -1,7 +1,8 @@
-export type Blueprint<P extends Record<string, any> = any> = {
-  factory: IComponentFactory<P>;
+export type Blueprint<P extends Record<string, any> = any, C = any> = {
+  factory: IComponentFactory<P, C>;
   props: P;
   key: string;
+  context?: C;
 };
 
 export type IController = {
@@ -20,8 +21,9 @@ export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes
 
 export type IOnDisposeCB = () => void;
 
-export type ISetupCallback<P extends Record<string, any>> = (ctx: {
+export type ISetupCallback<P extends Record<string, any>, C> = (ctx: {
   key: string;
+  context: C;
   onBeforeUpdate: IOnBeforeUpdateCB<P>;
   onUpdate: IOnUpdateCB<P>;
   onAfterUpdate: IOnAfterUpdateCB<P>;
@@ -29,30 +31,45 @@ export type ISetupCallback<P extends Record<string, any>> = (ctx: {
 
 export interface IComponentDefinition<P extends Record<string, any>> {
   defaultProps: P;
-  setup: ISetupCallback<P>;
+  setup: ISetupCallback<P, void>;
 }
-
-export interface IComponentFactory<P extends Record<string, any>> {
+export interface IComponentDefinitionWithContext<P extends Record<string, any>, C> {
   defaultProps: P;
-  create: (key: string, props?: P) => IComponentInstance<P>;
+  context: C;
+  setup: ISetupCallback<P, C>;
 }
 
-export interface IComponentInstance<P extends Record<string, any>> {
+export interface IComponentFactory<P extends Record<string, any>, C> {
+  defaultProps: P;
+  create(key: string): IComponentInstance<P, void>;
+  create(key: string, initProps?: P): IComponentInstance<P, void>;
+  create(key: string, initProps?: P, context?: C): IComponentInstance<P, C>;
+}
+
+export interface IComponentInstance<P extends Record<string, any>, C> {
   key: string;
   update(newProps: P): void;
   dispose(): void;
 }
 
-export function blueprint<P extends Record<string, any>>(factory: IComponentFactory<P>, props: P, key: string): Blueprint<P> {
-  return { factory, props, key };
+export function blueprint<P extends Record<string, any>, C>(
+  factory: IComponentFactory<P, C>,
+  props: P,
+  key: string,
+  context?: C
+): Blueprint<P, C> {
+  return { factory, props, key, context };
 }
 
-export function defineComponent<P extends Record<string, any>>(def: IComponentDefinition<P>): IComponentFactory<P> {
-  type _IChild = Blueprint & { ins?: IComponentInstance<any> };
+export function defineComponent<P extends Record<string, any>, C>(def: IComponentDefinitionWithContext<P, C>): IComponentFactory<P, C>;
+export function defineComponent<P extends Record<string, any>>(def: IComponentDefinition<P>): IComponentFactory<P, void>;
+export function defineComponent(def: IComponentDefinition<any> | IComponentDefinitionWithContext<any, any>): IComponentFactory<any, any> {
+  type _IChild = Blueprint & { ins?: IComponentInstance<any, any> };
 
-  const create = (key: string, initProps?: P) => {
-    const ctx: Parameters<ISetupCallback<P>>[0] = {
+  const create = (key: string, initProps?: any, context?: any) => {
+    const ctx: Parameters<ISetupCallback<any, any>>[0] = {
       key,
+      context: context ?? (def as any).context,
       onBeforeUpdate: () => {},
       onUpdate: () => {},
       onAfterUpdate: () => {},
@@ -83,11 +100,11 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       }
     };
 
-    const _createChild = (child: _IChild) => {
-      child.ins = child.factory.create(child.key, child.props);
+    const _createChild = (child: _IChild, newContext?: any) => {
+      child.ins = child.factory.create(child.key, child.props, newContext ?? ctx.context);
     };
 
-    const update = (newProps: P) => {
+    const update = (newProps: any) => {
       if (disposed) throw new Error('Already disposed');
 
       // calc changes
@@ -153,7 +170,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       for (const child of nextChildren) {
         // create
         if (_toCreateKeys.has(child.key)) {
-          _createChild(child);
+          _createChild(child, child.context);
         }
 
         // update
@@ -173,7 +190,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
           // 类型不同，卸载 prev，创建 next
           else {
             _disposeChild(prev);
-            _createChild(next);
+            _createChild(next, next.context);
           }
         }
       }
@@ -200,7 +217,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       update(initProps);
     }
 
-    const instance: IComponentInstance<P> = { key, update, dispose };
+    const instance: IComponentInstance<any, any> = { key, update, dispose };
 
     return instance;
   };

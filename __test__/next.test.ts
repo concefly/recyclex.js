@@ -217,3 +217,95 @@ it('Hierarchy Components Lifecycle', () => {
     ]
   `);
 });
+
+it('With context', () => {
+  const timelines: string[] = [];
+
+  const A = defineComponent({
+    defaultProps: { n: 1 },
+    context: { c: 1 },
+    setup: ctx => {
+      timelines.push(`a init, context: ${ctx.context.c}`);
+      return () => {};
+    },
+  });
+
+  const a = A.create('root');
+  a.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a init, context: 1",
+    ]
+  `);
+});
+
+it('With different context', () => {
+  const timelines: string[] = [];
+
+  const A = defineComponent({
+    defaultProps: { n: 1 },
+    context: { c: 1 },
+    setup: ctx => {
+      timelines.push(`a init, context: ${ctx.context.c}`);
+      return () => {};
+    },
+  });
+
+  const a = A.create('root', undefined, { c: 2 });
+  a.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a init, context: 2",
+    ]
+  `);
+});
+
+it.only('Hierarchy Components Lifecycle with context', () => {
+  const timelines: string[] = [];
+
+  const B = defineComponent({
+    defaultProps: { b: 1 },
+    context: { ss: 1, xx: 1 },
+    setup: ctx => {
+      timelines.push(`b<${ctx.key}> init, context: ss=${ctx.context.ss}, xx=${ctx.context.xx}`);
+
+      ctx.onUpdate = () => {
+        timelines.push(`b<${ctx.key}> update, context: ss=${ctx.context.ss}, xx=${ctx.context.xx}`);
+      };
+
+      return () => {};
+    },
+  });
+
+  const A = defineComponent({
+    defaultProps: { a: 1 },
+    context: { ss: 1 },
+    setup: ctx => {
+      timelines.push(`a<${ctx.key}> init, context: ss=${ctx.context.ss}`);
+
+      ctx.onUpdate = props => {
+        if (props.a === 1) return [blueprint(B, { b: 1 }, '1', { ...ctx.context, xx: 2 })];
+        if (props.a === 2) return [blueprint(B, { b: 1.1 }, '1', { ...ctx.context, xx: 3 })]; // 这个 context 会被忽略
+      };
+
+      return () => {};
+    },
+  });
+
+  const root = A.create('root', A.defaultProps, { ss: 2 });
+
+  root.update({ a: 2 });
+
+  root.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a<root> init, context: ss=2",
+      "b<1> init, context: ss=2, xx=2",
+      "b<1> update, context: ss=2, xx=2",
+      "b<1> update, context: ss=2, xx=2",
+    ]
+  `);
+});
