@@ -25,9 +25,9 @@ export type IController = {
 
 export type IControllerFactory = (ins: IComponentInstance<any>) => IController;
 
-export type IOnBeforeUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => void;
-export type IOnUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => Blueprint[] | void;
-export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => void;
+export type IOnBeforeUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<keyof P, any>) => void;
+export type IOnUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<keyof P, any>) => Blueprint[] | void;
+export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<keyof P, any>) => void;
 
 export type IOnDisposeCB = () => void;
 
