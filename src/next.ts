@@ -33,6 +33,9 @@ export type IOnDisposeCB = () => void;
 
 export type ISetupCallback<P extends Record<string, any>> = (ctx: {
   key: string;
+
+  initProps: P;
+
   onBeforeUpdate: IOnBeforeUpdateCB<P>;
   onUpdate: IOnUpdateCB<P>;
   onAfterUpdate: IOnAfterUpdateCB<P>;
@@ -79,12 +82,13 @@ export function defineContext<K extends string, T>(key: K, defaultValue: () => T
 export function defineComponent<P extends Record<string, any>>(def: IComponentDefinition<P>): IComponentFactory<P> {
   type _IChild = Blueprint & { ins?: IComponentInstance<any> };
 
-  const create = (key: string, initProps?: P, parent?: IComponentInstance<any>) => {
+  const create = (key: string, initProps: P = def.defaultProps, parent?: IComponentInstance<any>) => {
     const contextStore = new Map<string, any>();
     const instance: IComponentInstance<P> = { key, contextStore, parent, update, dispose };
 
     const ctx: Parameters<ISetupCallback<P>>[0] = {
       key,
+      initProps,
       onBeforeUpdate: () => {},
       onUpdate: () => {},
       onAfterUpdate: () => {},
@@ -295,9 +299,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     }
 
     // 立刻初始化
-    if (initProps) {
-      update(initProps);
-    }
+    update(initProps);
 
     return instance;
   };

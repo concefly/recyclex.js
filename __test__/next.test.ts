@@ -40,9 +40,12 @@ it('Single Component Lifecycle', () => {
   expect(timelines).toMatchInlineSnapshot(`
     [
       "a init",
-      "a before: {"n":2}, changes: [["n",null]]",
-      "a update: {"n":2}, changes: [["n",null]]",
-      "a after: {"n":2}, changes: [["n",null]]",
+      "a before: {"n":1}, changes: [["n",null]]",
+      "a update: {"n":1}, changes: [["n",null]]",
+      "a after: {"n":1}, changes: [["n",null]]",
+      "a before: {"n":2}, changes: [["n",1]]",
+      "a update: {"n":2}, changes: [["n",1]]",
+      "a after: {"n":2}, changes: [["n",1]]",
       "a before: {"n":3}, changes: [["n",2]]",
       "a update: {"n":3}, changes: [["n",2]]",
       "a after: {"n":3}, changes: [["n",2]]",
