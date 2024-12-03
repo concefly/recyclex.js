@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { blueprint, defineComponent } from '../src/next';
+import { blueprint, defineComponent, defineContext } from '../src/next';
 
 it('Single Component Lifecycle', () => {
   const timelines: string[] = [];
@@ -214,6 +214,66 @@ it('Hierarchy Components Lifecycle', () => {
       "a<root> after: {"a":4}, changes: [["a",3]]",
       "b<2> dispose",
       "a<root> dispose",
+    ]
+  `);
+});
+
+it('Hierarchy Components Context', () => {
+  const timelines: string[] = [];
+
+  const userContext = defineContext('user', () => 'default');
+
+  const B = defineComponent({
+    defaultProps: { b: 1 },
+    setup: ctx => {
+      timelines.push(`b<${ctx.key}> init`);
+
+      const userContextVal = ctx.getContext(userContext);
+      timelines.push(`b<${ctx.key}> user: ${userContextVal.value}`);
+
+      ctx.onUpdate = () => {
+        timelines.push(`b<${ctx.key}> update user: ${userContextVal.value}`);
+      };
+
+      return () => {};
+    },
+  });
+
+  const A = defineComponent({
+    defaultProps: { a: 1 },
+    setup: ctx => {
+      timelines.push(`a<${ctx.key}> init`);
+
+      const userContextVal = ctx.createContext(userContext);
+      timelines.push(`a<${ctx.key}> user: ${userContextVal.value}`);
+
+      userContextVal.value = 'user_1';
+
+      ctx.onUpdate = props => {
+        if (props.a === 2) {
+          userContextVal.value = 'user_2';
+        }
+
+        return [blueprint(B, { b: props.a }, '1')];
+      };
+
+      return () => {};
+    },
+  });
+
+  const root = A.create('root', A.defaultProps);
+
+  root.update({ a: 2 });
+  root.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a<root> init",
+      "a<root> user: default",
+      "b<1> init",
+      "b<1> user: user_1",
+      "b<1> update user: user_1",
+      "b<1> update user: user_2",
     ]
   `);
 });

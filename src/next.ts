@@ -4,6 +4,8 @@ export type Blueprint<P extends Record<string, any> = any> = {
   key: string;
 };
 
+export type IContextDefinition<K extends string, T> = { key: K; defaultValue: T };
+
 export type IController = {
   onInit?(): any;
   onBeforeUpdate?(): any;
@@ -25,6 +27,9 @@ export type ISetupCallback<P extends Record<string, any>> = (ctx: {
   onBeforeUpdate: IOnBeforeUpdateCB<P>;
   onUpdate: IOnUpdateCB<P>;
   onAfterUpdate: IOnAfterUpdateCB<P>;
+
+  createContext: <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
+  getContext: <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
 }) => IOnDisposeCB;
 
 export interface IComponentDefinition<P extends Record<string, any>> {
@@ -34,11 +39,15 @@ export interface IComponentDefinition<P extends Record<string, any>> {
 
 export interface IComponentFactory<P extends Record<string, any>> {
   defaultProps: P;
-  create: (key: string, props?: P) => IComponentInstance<P>;
+  create: (key: string, props?: P, parent?: IComponentInstance<any>) => IComponentInstance<P>;
 }
 
 export interface IComponentInstance<P extends Record<string, any>> {
   key: string;
+  parent?: IComponentInstance<any>;
+
+  contextStore: Map<string, any>;
+
   update(newProps: P): void;
   dispose(): void;
 }
@@ -47,15 +56,50 @@ export function blueprint<P extends Record<string, any>>(factory: IComponentFact
   return { factory, props, key };
 }
 
+export function defineContext<K extends string, T>(key: K, defaultValue: () => T): IContextDefinition<K, T> {
+  return {
+    key,
+    get defaultValue() {
+      return defaultValue();
+    },
+  };
+}
+
 export function defineComponent<P extends Record<string, any>>(def: IComponentDefinition<P>): IComponentFactory<P> {
   type _IChild = Blueprint & { ins?: IComponentInstance<any> };
 
-  const create = (key: string, initProps?: P) => {
+  const create = (key: string, initProps?: P, parent?: IComponentInstance<any>) => {
+    const contextStore = new Map<string, any>();
+    const instance: IComponentInstance<P> = { key, contextStore, parent, update, dispose };
+
     const ctx: Parameters<ISetupCallback<P>>[0] = {
       key,
       onBeforeUpdate: () => {},
       onUpdate: () => {},
       onAfterUpdate: () => {},
+
+      createContext: key => {
+        if (contextStore.has(key.key)) throw new Error('key already exists');
+        const rst = { value: key.defaultValue };
+        contextStore.set(key.key, rst);
+        return rst;
+      },
+
+      getContext: key => {
+        if (contextStore.has(key.key)) return contextStore.get(key.key);
+
+        let cur = parent;
+
+        while (cur) {
+          if (cur.contextStore.has(key.key)) {
+            return cur.contextStore.get(key.key);
+          }
+
+          cur = cur.parent;
+        }
+
+        throw new Error('key not exists');
+      },
     };
 
     // setup
@@ -84,10 +128,10 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     };
 
     const _createChild = (child: _IChild) => {
-      child.ins = child.factory.create(child.key, child.props);
+      child.ins = child.factory.create(child.key, child.props, instance);
     };
 
-    const update = (newProps: P) => {
+    function update(newProps: P) {
       if (disposed) throw new Error('Already disposed');
 
       // calc changes
@@ -180,9 +224,9 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
 
       oldProps = newProps;
       children = nextChildren;
-    };
+    }
 
-    const dispose = () => {
+    function dispose() {
       if (disposed) throw new Error('Already disposed');
 
       for (let i = children.length - 1; i >= 0; i--) {
@@ -193,14 +237,12 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
 
       children.length = 0;
       disposed = true;
-    };
+    }
 
     // 立刻初始化
     if (initProps) {
       update(initProps);
     }
-
-    const instance: IComponentInstance<P> = { key, update, dispose };
 
     return instance;
   };
