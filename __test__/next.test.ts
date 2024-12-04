@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { blueprint, defineComponent, defineContext } from '../src/next';
-import { combineLatest, map, Subject } from 'rxjs';
+import { combineLatest, map } from 'rxjs';
 
 it('Single Component Lifecycle', () => {
   const timelines: string[] = [];
@@ -9,6 +9,10 @@ it('Single Component Lifecycle', () => {
     defaultProps: { n: 1 },
     setup: ctx => {
       timelines.push(`a init`);
+
+      ctx.afterUpdate$.subscribe(() => {
+        timelines.push('a afterUpdate');
+      });
 
       ctx.dispose$.subscribe(() => {
         timelines.push('a dispose');
@@ -37,8 +41,11 @@ it('Single Component Lifecycle', () => {
     [
       "a init",
       "a update: n=1",
+      "a afterUpdate",
       "a update: n=2",
+      "a afterUpdate",
       "a update: n=3",
+      "a afterUpdate",
       "a dispose",
     ]
   `);

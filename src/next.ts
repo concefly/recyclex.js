@@ -1,4 +1,4 @@
-import { map, Observable, scan, Subject, BehaviorSubject } from 'rxjs';
+import { map, Observable, scan, Subject, BehaviorSubject, tap } from 'rxjs';
 
 export type IOptions<_K, V> = {
   isEqual: (a?: V, b?: V) => boolean;
@@ -43,6 +43,7 @@ export type ISetupCallback<P extends Record<string, any>> = (ctx: {
   key: string;
 
   P: IPropSubjects<P>;
+  afterUpdate$: Subject<void>;
   dispose$: Subject<void>;
 
   createContext: ICreateContextCB;
@@ -90,6 +91,8 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
 
     const propSubjects: IPropSubjects<P> = {} as any;
     const inputProps$ = new Subject<P>();
+
+    const afterUpdate$ = new Subject<void>();
     const dispose$ = new Subject<void>();
 
     const propertyKeys = new Set(Object.keys(def.defaultProps));
@@ -101,7 +104,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       propSubjects[`${k}$`] = new BehaviorSubject<any>(v);
     }
 
-    const ctx: Parameters<ISetupCallback<P>>[0] = { key, P: propSubjects, dispose$, createContext, getContext };
+    const ctx: Parameters<ISetupCallback<P>>[0] = { key, P: propSubjects, afterUpdate$, dispose$, createContext, getContext };
 
     // setup
     const blueprints$ = def.setup(ctx) ?? new Subject<Blueprint[]>();
@@ -243,7 +246,8 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
             _toCreateKeys: new Set<string>(),
             _toUpdateKeys: new Set<string>(),
           }
-        )
+        ),
+        tap(() => afterUpdate$.next())
       )
       .subscribe();
 
@@ -297,6 +301,14 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
 
       updateSub.unsubscribe();
       inputSub.unsubscribe();
+
+      // complete
+      inputProps$.complete();
+      afterUpdate$.complete();
+
+      for (const sub of Object.values(propSubjects)) {
+        sub.complete();
+      }
 
       dispose$.next();
       dispose$.complete();
