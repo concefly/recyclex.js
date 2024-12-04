@@ -39,7 +39,7 @@ export type IPropSubjects<P extends Record<string, any>> = {
   [K in keyof P as K extends string ? `${K}$` : never]-?: BehaviorSubject<P[K]>;
 };
 
-export type ISetupCallback<P extends Record<string, any>> = (ctx: {
+export type IComponentContext<P extends Record<string, any>> = {
   key: string;
 
   P: IPropSubjects<P>;
@@ -48,7 +48,9 @@ export type ISetupCallback<P extends Record<string, any>> = (ctx: {
 
   createContext: ICreateContextCB;
   getContext: IGetContextCB;
-}) => Observable<Blueprint[]> | void;
+};
+
+export type ISetupCallback<P extends Record<string, any>> = (ctx: IComponentContext<P>) => Observable<Blueprint[]> | void;
 
 export interface IComponentDefinition<P extends Record<string, any>> {
   defaultProps: P;
@@ -104,7 +106,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       propSubjects[`${k}$`] = new BehaviorSubject<any>(v);
     }
 
-    const ctx: Parameters<ISetupCallback<P>>[0] = { key, P: propSubjects, afterUpdate$, dispose$, createContext, getContext };
+    const ctx: IComponentContext<P> = { key, P: propSubjects, afterUpdate$, dispose$, createContext, getContext };
 
     // setup
     const blueprints$ = def.setup(ctx) ?? new Subject<Blueprint[]>();
