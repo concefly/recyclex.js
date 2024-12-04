@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { blueprint, defineComponent, defineContext } from '../src/next';
-import { combineLatest, map, tap } from 'rxjs';
+import { combineLatest, map } from 'rxjs';
 
 it('Single Component Lifecycle', () => {
   const timelines: string[] = [];
