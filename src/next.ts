@@ -97,7 +97,11 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     const inputProps$ = new Subject<P>();
     const dispose$ = new Subject<void>();
 
-    for (const [k, v] of Object.entries(initProps)) {
+    const propertyKeys = new Set(Object.keys(def.defaultProps));
+
+    for (const k of propertyKeys) {
+      const v = initProps[k] ?? def.defaultProps[k];
+
       // @ts-expect-error
       propSubjects[`${k}$`] = new BehaviorSubject<any>(v);
     }
@@ -117,6 +121,8 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
             const newInfos: Record<string, { value: any; version: any; changed: boolean }> = {};
 
             for (const [key, newVal] of Object.entries(cur)) {
+              if (!propertyKeys.has(key)) continue;
+
               const getVersion = def.options?.[key]?.getVersion ?? DefaultOptions.getVersion;
               const isEqual = def.options?.[key]?.isEqual ?? DefaultOptions.isEqual;
               const useVersionCheck = def.options?.[key]?.useVersionCheck ?? DefaultOptions.useVersionCheck;
