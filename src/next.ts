@@ -1,4 +1,4 @@
-import { map, scan, Subject } from 'rxjs';
+import { map, Observable, scan, Subject } from 'rxjs';
 
 export type IOptions<_K, V> = {
   isEqual: (a?: V, b?: V) => boolean;
@@ -32,8 +32,6 @@ export type IOnBeforeUpdateCB<P extends Record<string, any>> = (props: P, change
 export type IOnUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => Blueprint[] | void;
 export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => void;
 
-export type IOnDisposeCB = () => void;
-
 export type ICreateContextCB = <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
 export type IGetContextCB = <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
 
@@ -43,11 +41,11 @@ export type ISetupCallback<P extends Record<string, any>> = (ctx: {
   key: string;
 
   P: IPropSubjects<P>;
-  blueprints$: Subject<Blueprint[]>;
+  dispose$: Subject<void>;
 
   createContext: ICreateContextCB;
   getContext: IGetContextCB;
-}) => IOnDisposeCB;
+}) => Observable<Blueprint[]> | void;
 
 export interface IComponentDefinition<P extends Record<string, any>> {
   defaultProps: P;
@@ -94,18 +92,17 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     const instance: IComponentInstance<P> = { key, contextStore, parent, createContext, getContext, update, dispose };
 
     const propSubjects: IPropSubjects<P> = {} as any;
-
     const inputProps$ = new Subject<P>();
-    const blueprints$ = new Subject<Blueprint[]>();
+    const dispose$ = new Subject<void>();
 
     for (const k in initProps) {
       propSubjects[`${k}$`] = new Subject<any>() as any;
     }
 
-    const ctx: Parameters<ISetupCallback<P>>[0] = { key, P: propSubjects, blueprints$, createContext, getContext };
+    const ctx: Parameters<ISetupCallback<P>>[0] = { key, P: propSubjects, dispose$, createContext, getContext };
 
     // setup
-    const onDisposeCB = def.setup(ctx);
+    const blueprints$ = def.setup(ctx) ?? new Subject<Blueprint[]>();
 
     let disposed = false;
     let children: _IChild[] = [];
@@ -292,9 +289,11 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
         children[i].ins?.dispose();
       }
 
-      onDisposeCB();
       updateSub.unsubscribe();
       inputSub.unsubscribe();
+
+      dispose$.next();
+      dispose$.complete();
 
       children.length = 0;
       disposed = true;

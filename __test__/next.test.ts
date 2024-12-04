@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { blueprint, defineComponent, defineContext } from '../src/next';
-import { combineLatest } from 'rxjs';
+import { combineLatest, map, tap } from 'rxjs';
 
 it('Single Component Lifecycle', () => {
   const timelines: string[] = [];
@@ -10,14 +10,16 @@ it('Single Component Lifecycle', () => {
     setup: ctx => {
       timelines.push(`a init`);
 
-      const sub = combineLatest([ctx.P.n$]).subscribe(([n]) => {
-        timelines.push(`a update: n=${n}`);
+      ctx.dispose$.subscribe(() => {
+        timelines.push('a dispose');
       });
 
-      return () => {
-        timelines.push('a dispose');
-        sub.unsubscribe();
-      };
+      return combineLatest([ctx.P.n$]).pipe(
+        map(([n]) => {
+          timelines.push(`a update: n=${n}`);
+          return [];
+        })
+      );
     },
   });
 
@@ -50,14 +52,16 @@ it('Single Component Lifecycle with initProps', () => {
     setup: ctx => {
       timelines.push(`a init`);
 
-      const sub = combineLatest([ctx.P.n$]).subscribe(([n]) => {
-        timelines.push(`a update: n=${n}`);
+      ctx.dispose$.subscribe(() => {
+        timelines.push('a dispose');
       });
 
-      return () => {
-        timelines.push('a dispose');
-        sub.unsubscribe();
-      };
+      return combineLatest([ctx.P.n$]).pipe(
+        map(([n]) => {
+          timelines.push(`a update: n=${n}`);
+          return [];
+        })
+      );
     },
   });
 
@@ -76,9 +80,7 @@ it('Single Component Lifecycle with initProps', () => {
 it('Cannot dispose twice', () => {
   const A = defineComponent({
     defaultProps: { n: 1 },
-    setup: () => {
-      return () => {};
-    },
+    setup: () => {},
   });
 
   const a = A.create('root');
@@ -91,9 +93,7 @@ it('Cannot dispose twice', () => {
 it('Cannot update after dispose', () => {
   const A = defineComponent({
     defaultProps: { n: 1 },
-    setup: () => {
-      return () => {};
-    },
+    setup: () => {},
   });
 
   const a = A.create('root');
@@ -111,14 +111,16 @@ it('Hierarchy Components Lifecycle', () => {
     setup: ctx => {
       timelines.push(`b<${ctx.key}> init`);
 
-      const sub = combineLatest([ctx.P.b$]).subscribe(([n]) => {
-        timelines.push(`b<${ctx.key}> update: b=${n}`);
+      ctx.dispose$.subscribe(() => {
+        timelines.push(`b<${ctx.key}> dispose`);
       });
 
-      return () => {
-        timelines.push(`b<${ctx.key}> dispose`);
-        sub.unsubscribe();
-      };
+      return combineLatest([ctx.P.b$]).pipe(
+        map(([n]) => {
+          timelines.push(`b<${ctx.key}> update: b=${n}`);
+          return [];
+        })
+      );
     },
   });
 
@@ -127,18 +129,21 @@ it('Hierarchy Components Lifecycle', () => {
     setup: ctx => {
       timelines.push(`a<${ctx.key}> init`);
 
-      const sub = combineLatest([ctx.P.a$]).subscribe(([a]) => {
-        timelines.push(`a<${ctx.key}> update: a=${a}`);
-
-        if (a === 1) ctx.blueprints$.next([blueprint(B, { b: 1 }, '1')]);
-        if (a === 2) ctx.blueprints$.next([blueprint(B, { b: 1.1 }, '1'), blueprint(B, { b: 2 }, '2')]);
-        if (a === 3) ctx.blueprints$.next([blueprint(B, { b: 2.1 }, '2')]);
+      ctx.dispose$.subscribe(() => {
+        timelines.push(`a<${ctx.key}> dispose`);
       });
 
-      return () => {
-        timelines.push(`a<${ctx.key}> dispose`);
-        sub.unsubscribe();
-      };
+      return combineLatest([ctx.P.a$]).pipe(
+        map(([a]) => {
+          timelines.push(`a<${ctx.key}> update: a=${a}`);
+
+          if (a === 1) return [blueprint(B, { b: 1 }, '1')];
+          if (a === 2) return [blueprint(B, { b: 1.1 }, '1'), blueprint(B, { b: 2 }, '2')];
+          if (a === 3) return [blueprint(B, { b: 2.1 }, '2')];
+
+          return [];
+        })
+      );
     },
   });
 
@@ -181,13 +186,16 @@ it('Hierarchy Components Context', () => {
       const userContextVal = ctx.getContext(userContext);
       timelines.push(`b<${ctx.key}> user: ${userContextVal.value}`);
 
-      const sub = combineLatest([ctx.P.b$]).subscribe(() => {
-        timelines.push(`b<${ctx.key}> update user: ${userContextVal.value}`);
+      ctx.dispose$.subscribe(() => {
+        timelines.push(`b<${ctx.key}> dispose`);
       });
 
-      return () => {
-        sub.unsubscribe();
-      };
+      return combineLatest([ctx.P.b$]).pipe(
+        map(() => {
+          timelines.push(`b<${ctx.key}> update user: ${userContextVal.value}`);
+          return [];
+        })
+      );
     },
   });
 
@@ -201,17 +209,19 @@ it('Hierarchy Components Context', () => {
 
       userContextVal.value = 'user_1';
 
-      const sub = combineLatest([ctx.P.a$]).subscribe(([a]) => {
-        if (a === 2) {
-          userContextVal.value = 'user_2';
-        }
-
-        ctx.blueprints$.next([blueprint(B, { b: a }, '1')]);
+      ctx.dispose$.subscribe(() => {
+        timelines.push(`a<${ctx.key}> dispose`);
       });
 
-      return () => {
-        sub.unsubscribe();
-      };
+      return combineLatest([ctx.P.a$]).pipe(
+        map(([a]) => {
+          if (a === 2) {
+            userContextVal.value = 'user_2';
+          }
+
+          return [blueprint(B, { b: a }, '1')];
+        })
+      );
     },
   });
 
@@ -228,6 +238,8 @@ it('Hierarchy Components Context', () => {
       "b<1> user: user_1",
       "b<1> update user: user_1",
       "b<1> update user: user_2",
+      "b<1> dispose",
+      "a<root> dispose",
     ]
   `);
 });
