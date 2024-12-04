@@ -1,4 +1,4 @@
-import { map, Observable, scan, Subject } from 'rxjs';
+import { map, Observable, scan, Subject, BehaviorSubject } from 'rxjs';
 
 export type IOptions<_K, V> = {
   isEqual: (a?: V, b?: V) => boolean;
@@ -35,7 +35,9 @@ export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes
 export type ICreateContextCB = <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
 export type IGetContextCB = <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
 
-export type IPropSubjects<P extends Record<string, any>> = { [K in keyof P as K extends string ? `${K}$` : never]: Subject<P[K]> };
+export type IPropSubjects<P extends Record<string, any>> = {
+  [K in keyof P as K extends string ? `${K}$` : never]-?: BehaviorSubject<P[K]>;
+};
 
 export type ISetupCallback<P extends Record<string, any>> = (ctx: {
   key: string;
@@ -95,8 +97,9 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     const inputProps$ = new Subject<P>();
     const dispose$ = new Subject<void>();
 
-    for (const k in initProps) {
-      propSubjects[`${k}$`] = new Subject<any>() as any;
+    for (const [k, v] of Object.entries(initProps)) {
+      // @ts-expect-error
+      propSubjects[`${k}$`] = new BehaviorSubject<any>(v);
     }
 
     const ctx: Parameters<ISetupCallback<P>>[0] = { key, P: propSubjects, dispose$, createContext, getContext };
@@ -298,9 +301,6 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       children.length = 0;
       disposed = true;
     }
-
-    // 立刻初始化
-    update(initProps);
 
     return instance;
   };
