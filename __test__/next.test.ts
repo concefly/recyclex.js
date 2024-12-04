@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { blueprint, defineComponent, defineContext } from '../src/next';
-import { combineLatest, map } from 'rxjs';
+import { combineLatest, map, Subject } from 'rxjs';
 
 it('Single Component Lifecycle', () => {
   const timelines: string[] = [];
@@ -176,7 +176,7 @@ it('Hierarchy Components Lifecycle', () => {
 it('Hierarchy Components Context', () => {
   const timelines: string[] = [];
 
-  const userContext = defineContext('user', () => 'default');
+  const userContext = defineContext('user');
 
   const B = defineComponent({
     defaultProps: { b: 1 },
@@ -204,10 +204,10 @@ it('Hierarchy Components Context', () => {
     setup: ctx => {
       timelines.push(`a<${ctx.key}> init`);
 
-      const userContextVal = ctx.createContext(userContext);
+      const userContextVal = ctx.createContext(userContext, 'xxx');
       timelines.push(`a<${ctx.key}> user: ${userContextVal.value}`);
 
-      userContextVal.value = 'user_1';
+      userContextVal.next('user_1');
 
       ctx.dispose$.subscribe(() => {
         timelines.push(`a<${ctx.key}> dispose`);
@@ -216,7 +216,7 @@ it('Hierarchy Components Context', () => {
       return combineLatest([ctx.P.a$]).pipe(
         map(([a]) => {
           if (a === 2) {
-            userContextVal.value = 'user_2';
+            userContextVal.next('user_2');
           }
 
           return [blueprint(B, { b: a }, '1')];
@@ -233,13 +233,65 @@ it('Hierarchy Components Context', () => {
   expect(timelines).toMatchInlineSnapshot(`
     [
       "a<root> init",
-      "a<root> user: default",
+      "a<root> user: xxx",
       "b<1> init",
       "b<1> user: user_1",
       "b<1> update user: user_1",
       "b<1> update user: user_2",
       "b<1> dispose",
       "a<root> dispose",
+    ]
+  `);
+});
+
+it('Hierarchy Components Context Subscribe', async () => {
+  const timelines: string[] = [];
+
+  const userContext = defineContext('user');
+
+  const B = defineComponent({
+    defaultProps: {},
+    setup: ctx => {
+      const userContextVal$ = ctx.getContext(userContext);
+
+      return userContextVal$.pipe(
+        map(() => {
+          timelines.push(`b<${ctx.key}> update user: ${userContextVal$.value}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const A = defineComponent({
+    defaultProps: { a: 1 },
+    setup: ctx => {
+      const userContextVal = ctx.createContext(userContext, 'xxx');
+
+      setTimeout(() => {
+        userContextVal.next('user_1');
+        userContextVal.next('user_2');
+      }, 0);
+
+      return combineLatest([ctx.P.a$]).pipe(
+        map(() => {
+          return [blueprint(B, {}, '1')];
+        })
+      );
+    },
+  });
+
+  const root = A.create('root', A.defaultProps);
+
+  await new Promise<void>(resolve => setTimeout(resolve, 100));
+
+  root.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "b<1> update user: xxx",
+      "b<1> update user: user_1",
+      "b<1> update user: user_2",
     ]
   `);
 });

@@ -16,7 +16,7 @@ export const DefaultOptions: IOptions<string, any> = {
 
 export type Blueprint<P extends Record<string, any> = any> = { factory: IComponentFactory<P>; props: P; key: string };
 
-export type IContextDefinition<K extends string, T> = { key: K; defaultValue: T };
+export type IContextDefinition<T> = string & { _type: T };
 
 export type IController = {
   onInit?(): any;
@@ -32,8 +32,8 @@ export type IOnBeforeUpdateCB<P extends Record<string, any>> = (props: P, change
 export type IOnUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => Blueprint[] | void;
 export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => void;
 
-export type ICreateContextCB = <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
-export type IGetContextCB = <K extends string, T>(key: IContextDefinition<K, T>) => { value: T };
+export type ICreateContextCB = <T>(key: IContextDefinition<T>, defaultValue: T) => BehaviorSubject<T>;
+export type IGetContextCB = <T>(key: IContextDefinition<T>) => BehaviorSubject<T>;
 
 export type IPropSubjects<P extends Record<string, any>> = {
   [K in keyof P as K extends string ? `${K}$` : never]-?: BehaviorSubject<P[K]>;
@@ -77,13 +77,8 @@ export function blueprint<P extends Record<string, any>>(factory: IComponentFact
   return { factory, props, key };
 }
 
-export function defineContext<K extends string, T>(key: K, defaultValue: () => T): IContextDefinition<K, T> {
-  return {
-    key,
-    get defaultValue() {
-      return defaultValue();
-    },
-  };
+export function defineContext<T>(key: string): IContextDefinition<T> {
+  return key as any;
 }
 
 export function defineComponent<P extends Record<string, any>>(def: IComponentDefinition<P>): IComponentFactory<P> {
@@ -263,27 +258,29 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       child.ins = child.factory.create(child.key, child.props, instance);
     }
 
-    function createContext(key: IContextDefinition<string, any>) {
-      if (contextStore.has(key.key)) throw new Error('key already exists');
-      const rst = { value: key.defaultValue };
-      contextStore.set(key.key, rst);
-      return rst;
+    function createContext(key: IContextDefinition<any>, defaultValue?: any) {
+      if (contextStore.has(key)) throw new Error('key already exists');
+
+      const sub = new BehaviorSubject(defaultValue);
+      contextStore.set(key, sub);
+
+      return sub;
     }
 
-    function getContext(key: IContextDefinition<string, any>) {
-      if (contextStore.has(key.key)) return contextStore.get(key.key);
+    function getContext(key: IContextDefinition<any>) {
+      if (contextStore.has(key)) return contextStore.get(key);
 
       let cur = parent;
 
       while (cur) {
-        if (cur.contextStore.has(key.key)) {
-          return cur.contextStore.get(key.key);
+        if (cur.contextStore.has(key)) {
+          return cur.contextStore.get(key);
         }
 
         cur = cur.parent;
       }
 
-      return key.defaultValue;
+      throw new Error('context not found: ' + key);
     }
 
     function update(newProps: P) {
