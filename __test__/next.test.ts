@@ -154,7 +154,7 @@ it('Hierarchy Components Lifecycle', () => {
     },
   });
 
-  const root = A.create('root', A.defaultProps);
+  const root = A.create('root');
 
   root.update({ a: 2 });
   root.update({ a: 3 });
@@ -232,7 +232,7 @@ it('Hierarchy Components Context', () => {
     },
   });
 
-  const root = A.create('root', A.defaultProps);
+  const root = A.create('root');
 
   root.update({ a: 2 });
   root.dispose();
@@ -288,7 +288,7 @@ it('Hierarchy Components Context Subscribe', async () => {
     },
   });
 
-  const root = A.create('root', A.defaultProps);
+  const root = A.create('root');
 
   await new Promise<void>(resolve => setTimeout(resolve, 100));
 
@@ -299,6 +299,109 @@ it('Hierarchy Components Context Subscribe', async () => {
       "b<1> update user: xxx",
       "b<1> update user: user_1",
       "b<1> update user: user_2",
+    ]
+  `);
+});
+
+it('Missing Key', () => {
+  const timelines: string[] = [];
+
+  const A = defineComponent<{ n: number; k?: string }>({
+    defaultProps: { n: 1, k: '_default_' },
+    setup: ctx => {
+      return combineLatest([ctx.P.n$, ctx.P.k$]).pipe(
+        map(([n, k]) => {
+          timelines.push(`a update: n=${n}, k=${k}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const a = A.create('root');
+
+  a.update({ n: 2, k: 'a' });
+  a.update({ n: 3 });
+  a.update({ n: 4, k: 'b' });
+
+  a.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a update: n=1, k=_default_",
+      "a update: n=2, k=_default_",
+      "a update: n=2, k=a",
+      "a update: n=3, k=a",
+      "a update: n=3, k=_default_",
+      "a update: n=4, k=_default_",
+      "a update: n=4, k=b",
+    ]
+  `);
+});
+
+it('bufferInput', () => {
+  const timelines: string[] = [];
+
+  const A = defineComponent<{ n: number; k?: string }>({
+    defaultProps: { n: 1, k: '_default_' },
+    setup: ctx => {
+      return combineLatest([ctx.P.n$, ctx.P.k$]).pipe(
+        ctx.bufferInput(),
+        map(([n, k]) => {
+          timelines.push(`a update: n=${n}, k=${k}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const a = A.create('root');
+
+  a.update({ n: 2, k: 'a' });
+  a.update({ n: 3 });
+  a.update({ n: 4, k: 'b' });
+
+  a.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a update: n=1, k=_default_",
+      "a update: n=2, k=a",
+      "a update: n=3, k=_default_",
+      "a update: n=4, k=b",
+    ]
+  `);
+});
+
+it('props select', () => {
+  const timelines: string[] = [];
+
+  const A = defineComponent<{ n: number; k?: string }>({
+    defaultProps: { n: 1, k: '_default_' },
+    setup: ctx => {
+      return ctx.select([ctx.P.n$, ctx.P.k$]).pipe(
+        map(([n, k]) => {
+          timelines.push(`a update: n=${n}, k=${k}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const a = A.create('root');
+
+  a.update({ n: 2, k: 'a' });
+  a.update({ n: 3 });
+  a.update({ n: 4, k: 'b' });
+
+  a.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a update: n=1, k=_default_",
+      "a update: n=2, k=a",
+      "a update: n=3, k=_default_",
+      "a update: n=4, k=b",
     ]
   `);
 });

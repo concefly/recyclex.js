@@ -1,4 +1,15 @@
-import { map, Observable, scan, Subject, BehaviorSubject, tap } from 'rxjs';
+import {
+  map,
+  Observable,
+  scan,
+  Subject,
+  BehaviorSubject,
+  tap,
+  bufferWhen,
+  OperatorFunction,
+  ObservableInputTuple,
+  combineLatest,
+} from 'rxjs';
 
 export type IOptions<_K, V> = {
   isEqual: (a?: V, b?: V) => boolean;
@@ -43,8 +54,12 @@ export type IComponentContext<P extends Record<string, any>> = {
   key: string;
 
   P: IPropSubjects<P>;
+  afterInput$: Subject<Set<keyof P>>;
   afterUpdate$: Subject<void>;
   dispose$: Subject<void>;
+
+  select: <T extends readonly unknown[]>(sources: readonly [...ObservableInputTuple<T>]) => Observable<T>;
+  bufferInput: <T>() => OperatorFunction<T, T>;
 
   createContext: ICreateContextCB;
   getContext: IGetContextCB;
@@ -53,13 +68,13 @@ export type IComponentContext<P extends Record<string, any>> = {
 export type ISetupCallback<P extends Record<string, any>> = (ctx: IComponentContext<P>) => Observable<Blueprint[]> | void;
 
 export interface IComponentDefinition<P extends Record<string, any>> {
-  defaultProps: P;
+  defaultProps: Required<P>;
   setup: ISetupCallback<P>;
   options?: IOptionsMap<P>;
 }
 
 export interface IComponentFactory<P extends Record<string, any>> {
-  defaultProps: P;
+  def: IComponentDefinition<P>;
   create: (key: string, props?: P, parent?: IComponentInstance<any>) => IComponentInstance<P>;
 }
 
@@ -76,7 +91,8 @@ export interface IComponentInstance<P extends Record<string, any>> {
   dispose(): void;
 }
 
-export function blueprint<P extends Record<string, any>>(factory: IComponentFactory<P>, props: P, key: string): Blueprint<P> {
+export function blueprint<P extends Record<string, any>>(factory: IComponentFactory<P>, props: P, key: string): Blueprint {
+  // @ts-expect-error
   return { factory, props, key };
 }
 
@@ -94,19 +110,44 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     const propSubjects: IPropSubjects<P> = {} as any;
     const inputProps$ = new Subject<P>();
 
+    const afterInput$ = new Subject<Set<keyof P>>();
     const afterUpdate$ = new Subject<void>();
     const dispose$ = new Subject<void>();
 
-    const propertyKeys = new Set(Object.keys(def.defaultProps));
+    const properties = Object.keys(def.defaultProps) as (keyof P)[];
 
-    for (const k of propertyKeys) {
+    for (const k of properties) {
       const v = initProps[k] ?? def.defaultProps[k];
 
       // @ts-expect-error
       propSubjects[`${k}$`] = new BehaviorSubject<any>(v);
     }
 
-    const ctx: IComponentContext<P> = { key, P: propSubjects, afterUpdate$, dispose$, createContext, getContext };
+    const bufferInput = <T>() => {
+      const fn: OperatorFunction<T, T> = src$ =>
+        src$.pipe(
+          bufferWhen(() => afterInput$),
+          map(args => args[args.length - 1])
+        );
+
+      return fn;
+    };
+
+    const select = <T extends readonly unknown[]>(list: readonly [...ObservableInputTuple<T>]) => {
+      return combineLatest(list).pipe(bufferInput());
+    };
+
+    const ctx: IComponentContext<P> = {
+      key,
+      P: propSubjects,
+      afterUpdate$,
+      afterInput$,
+      dispose$,
+      createContext,
+      getContext,
+      bufferInput,
+      select,
+    };
 
     // setup
     const blueprints$ = def.setup(ctx) ?? new Subject<Blueprint[]>();
@@ -120,8 +161,8 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
           (lastInfos, cur) => {
             const newInfos: Record<string, { value: any; version: any; changed: boolean }> = {};
 
-            for (const [key, newVal] of Object.entries(cur)) {
-              if (!propertyKeys.has(key)) continue;
+            for (const key of properties as string[]) {
+              const newVal = cur[key] ?? def.defaultProps[key];
 
               const getVersion = def.options?.[key]?.getVersion ?? DefaultOptions.getVersion;
               const isEqual = def.options?.[key]?.isEqual ?? DefaultOptions.isEqual;
@@ -154,12 +195,15 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
         ),
         map(infos => {
           const entries = Object.entries(infos).filter(([_, info]) => info.changed);
-          // const changes = new Set<string>(entries.map(([key]) => key));
 
           for (const [k, v] of entries) {
             propSubjects[`${k}$`].next(v.value);
           }
-        })
+
+          const changes = new Set<string>(entries.map(([key]) => key));
+          return changes;
+        }),
+        tap(changes => afterInput$.next(changes))
       )
       .subscribe();
 
@@ -253,6 +297,9 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       )
       .subscribe();
 
+    // blueprint 订阅完成后，立刻触发一次 afterInput，因为 P 是 BehaviorSubject, 会在订阅时立刻发送一次
+    afterInput$.next(new Set(properties));
+
     function _disposeChild(child: _IChild) {
       if (child.ins) {
         child.ins.dispose();
@@ -307,6 +354,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       // complete
       inputProps$.complete();
       afterUpdate$.complete();
+      afterInput$.complete();
 
       for (const sub of Object.values(propSubjects)) {
         sub.complete();
@@ -322,5 +370,5 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     return instance;
   };
 
-  return { defaultProps: def.defaultProps, create };
+  return { def, create };
 }
