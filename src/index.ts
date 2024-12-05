@@ -1,444 +1,37 @@
-import { IComponentFactory, IComponentInstance } from './next';
+import {
+  map,
+  Observable,
+  scan,
+  Subject,
+  BehaviorSubject,
+  tap,
+  bufferWhen,
+  OperatorFunction,
+  ObservableInputTuple,
+  combineLatest,
+  filter,
+  takeUntil,
+  MonoTypeOperatorFunction,
+} from 'rxjs';
 
-export type IProps = Record<string, any>;
-
-export interface ComponentType {
-  new (context: any, registry?: ComponentRegistry): Component;
-}
-
-export interface IPropertyMeta<K = any, D = any> {
-  isEquals?: (a: D, b: D) => boolean;
-  onInit?(key: K): any;
-  onDestroy?(key: K): any;
-  onSet?(key: K, value: D, oldValue?: D): any;
-  onChange?(key: K, value: D, oldValue?: D): any;
-  shouldRequestUpdate?(key: K, value: D, oldValue?: D): boolean;
-
-  versionCheck?(value: D): string | number;
-}
-
-export interface IComponentMeta {
-  properties: Map<string, IPropertyMeta>;
-}
-
-// property decorator
-export function Reactive<T, K extends keyof T>(def: IPropertyMeta<K, T[K]> = {}) {
-  return function (prototype: T, key: K) {
-    if (!Object.prototype.hasOwnProperty.call(prototype, '_meta')) {
-      // inject meta data
-      Object.defineProperty(prototype, '_meta', {
-        value: { properties: new Map() } satisfies IComponentMeta,
-        enumerable: false,
-      });
-    }
-
-    // @ts-expect-error
-    (prototype._meta as IComponentMeta).properties.set(key, def);
-
-    // make it a getter and setter
-    const _stashKey = `_$${String(key)}`;
-    const _stashVersionKey = `_$${String(key)}_version`;
-
-    Object.defineProperties(prototype, {
-      [_stashKey]: { writable: true, enumerable: false, configurable: false },
-      [key]: {
-        get(): any {
-          // @ts-expect-error
-          return this[_stashKey];
-        },
-        set(value: any) {
-          // @ts-expect-error
-          const oldValue = this[_stashKey];
-
-          // @ts-expect-error
-          this[_stashKey] = value;
-
-          if (def.onSet) def.onSet.call(this, key, value, oldValue);
-
-          // use version check
-          if (def.versionCheck) {
-            // @ts-expect-error
-            const oldVersion = this[_stashVersionKey];
-            const newVersion = def.versionCheck(value);
-
-            if (oldVersion === newVersion) return; // no change
-
-            // @ts-expect-error
-            this[_stashVersionKey] = newVersion;
-          }
-
-          // use equal check
-          else {
-            const _equals = def.isEquals || Options.isEqual;
-            if (_equals(oldValue, value)) return; // no change
-          }
-
-          if (def.onChange) def.onChange.call(this, key, value, oldValue);
-
-          const _sru = def.shouldRequestUpdate ? def.shouldRequestUpdate.call(this, key, value, oldValue) : true;
-          // @ts-expect-error
-          if (_sru && typeof this.requestUpdate === 'function') {
-            // @ts-expect-error
-            this.requestUpdate(key, oldValue);
-          }
-        },
-      },
-    });
-  };
-}
-
-// class decorator
-export function Register(name: keyof IComponentInfoMap, registry = ComponentRegistry.Default) {
-  return function (constructor: ComponentType) {
-    registry.register(name, constructor);
-  };
-}
-
-function _getComponentMeta(Type: ComponentType): IComponentMeta | null {
-  // 递归获取父类的 meta
-  const _cur: IComponentMeta = Type.prototype._meta;
-  if (!_cur) return null;
-
-  const _parent = _getComponentMeta(Object.getPrototypeOf(Type.prototype).constructor);
-  if (!_parent) return _cur;
-
-  return {
-    properties: new Map([..._parent.properties, ..._cur.properties]),
-  };
-}
-
-export const Options: {
-  isEqual: (a: any, b: any) => boolean;
-} = {
-  isEqual: (a, b) => a === b,
+export type IOptions<_K, V> = {
+  isEqual: (a?: V, b?: V) => boolean;
+  getVersion: (v: V) => string | number;
+  useVersionCheck: boolean;
 };
 
-export class Blueprint {
-  static of<T extends keyof IComponentInfoMap>(type: T, props: IComponentInfoMap[T], key?: string): Blueprint {
-    return new Blueprint(type as any, props, key || '');
-  }
+export type IOptionsMap<P> = { [K in keyof P]?: Partial<IOptions<K, P[K]>> };
 
-  static cast(arg: any): Blueprint[] {
-    if (arg instanceof Blueprint) return [arg];
+export const DefaultOptions: IOptions<string, any> = {
+  isEqual: (a, b) => a === b,
+  getVersion: () => 0,
+  useVersionCheck: false,
+};
 
-    if (Array.isArray(arg)) {
-      const list: Blueprint[] = [];
-      for (const item of arg) {
-        list.push(...Blueprint.cast(item));
-      }
-      return list;
-    }
+export type Blueprint<P extends Record<string, any> = any> = { factory: IComponentFactory<P>; props: P; key: string };
 
-    return [];
-  }
+export type IContextDefinition<T> = string & { _type: T };
 
-  _ins: Component | null = null;
-
-  constructor(
-    readonly type: string,
-    readonly props: IProps,
-    readonly key: string
-  ) {
-    if (key.startsWith('__$$')) throw new Error('Key cannot start with __$$: ' + key);
-  }
-}
-
-/**
- * 响应式组件
- */
-export class Component<CT = any, P extends IProps = any> {
-  constructor(
-    public context: CT,
-    private _registry = ComponentRegistry.Default
-  ) {}
-
-  public _changes = new Map<keyof P, any>();
-  protected _controllers: IController[] = [];
-
-  protected onInit() {}
-  protected onBeforeUpdate() {}
-  protected onUpdate(): any {}
-  protected onAfterUpdate() {}
-  protected onDestroy() {}
-
-  get meta(): IComponentMeta {
-    if (this._metaCache) return this._metaCache;
-
-    // merge parent meta
-    const meta = _getComponentMeta(this.constructor as any);
-    if (!meta) throw new Error('meta not found');
-
-    this._metaCache = meta;
-
-    return meta;
-  }
-
-  get initted() {
-    return this._initted;
-  }
-
-  private _noPropertySchedule = false;
-  private _metaCache: IComponentMeta | null = null;
-  private _initted = false;
-  private _lastNodes: Blueprint[] = [];
-  private readonly _updateQueue: { key: string; oldValue?: any }[] = [];
-
-  private _inLifecycle: null | 'onInit' | 'onBeforeUpdate' | 'onUpdate' | 'onAfterUpdate' | 'onDestroy' = null;
-
-  requestUpdate(key: string, oldValue?: any) {
-    if (this._inLifecycle === 'onDestroy') return; // do nothing
-
-    if (this._inLifecycle === 'onAfterUpdate' || this._inLifecycle === 'onBeforeUpdate' || this._inLifecycle === 'onUpdate') {
-      throw new Error(`Cannot requestUpdate ${this._inLifecycle}: key=${key}`);
-    }
-
-    this._updateQueue.push({ key, oldValue });
-
-    if (this._noPropertySchedule) return;
-
-    this._schedule();
-  }
-
-  dispatch(datas: Partial<P>): void;
-  dispatch(cb: () => any): void;
-  dispatch(arg: any) {
-    this._noPropertySchedule = true;
-
-    if (typeof arg === 'function') {
-      arg.call(this);
-    } else {
-      for (const [key, value] of Object.entries(arg)) {
-        // @ts-expect-error
-        this[key] = value;
-      }
-    }
-
-    this._noPropertySchedule = false;
-    this._schedule();
-  }
-
-  protected _schedule() {
-    if (!this._initted || this._inLifecycle === 'onDestroy') return;
-    if (this._updateQueue.length === 0) return;
-
-    this.update();
-  }
-
-  update() {
-    if (this._inLifecycle) throw new Error('Cannot update in lifecycle: ' + this._inLifecycle);
-
-    const queue = this._updateQueue.concat();
-    this._updateQueue.length = 0;
-
-    this._changes.clear();
-    for (const { key, oldValue } of queue) {
-      this._changes.set(key, oldValue);
-    }
-
-    if (this._changes.size === 0) return; // no change
-
-    this._inLifecycle = 'onBeforeUpdate';
-
-    // tap controllers
-    for (const ctrl of this._controllers) {
-      ctrl.onBeforeUpdate?.();
-    }
-
-    this.onBeforeUpdate();
-    this._inLifecycle = null;
-
-    this._inLifecycle = 'onUpdate';
-
-    // tap controllers
-    for (const ctrl of this._controllers) {
-      ctrl.onUpdate?.();
-    }
-
-    let vnodes = Blueprint.cast(this.onUpdate());
-
-    for (const ctrl of this._controllers) {
-      if (ctrl.onMutateBlueprints) {
-        vnodes = ctrl.onMutateBlueprints(vnodes);
-      }
-    }
-
-    this._inLifecycle = null;
-
-    // fill node key
-    const _keysCount = vnodes.filter(n => n.key).length;
-    if (_keysCount === 0) {
-      // @ts-expect-error
-      vnodes.forEach((n, i) => (n.key = `__$$${i}`));
-    } else if (_keysCount < vnodes.length) {
-      throw new Error('All must have keys, or none at all');
-    }
-
-    this._diff(vnodes);
-
-    this._inLifecycle = 'onAfterUpdate';
-
-    // tap controllers
-    for (const ctrl of this._controllers) {
-      ctrl.onAfterUpdate?.();
-    }
-
-    this.onAfterUpdate();
-    this._inLifecycle = null;
-  }
-
-  init() {
-    if (this._initted) return;
-
-    for (const [key, meta] of this.meta.properties) {
-      if (meta.onInit) meta.onInit.call(this, key);
-    }
-
-    this._inLifecycle = 'onInit';
-
-    // tap controllers
-    for (const ctrl of this._controllers) {
-      ctrl.onInit?.();
-    }
-
-    this.onInit();
-
-    this._inLifecycle = null;
-    this._initted = true;
-
-    this._schedule();
-  }
-
-  destroy() {
-    this._inLifecycle = 'onDestroy';
-
-    for (const node of this._lastNodes) {
-      if (node._ins) {
-        if ((node._ins as any).dispose) {
-          (node._ins as any).dispose();
-        } else {
-          node._ins.destroy();
-        }
-        node._ins = null;
-      }
-    }
-
-    for (const [key, meta] of this.meta.properties) {
-      if (meta.onDestroy) meta.onDestroy.call(this, key);
-    }
-
-    this._changes.clear();
-    this._metaCache = null;
-    this._lastNodes.length = 0;
-    this._updateQueue.length = 0;
-
-    // tap controllers
-    for (const ctrl of this._controllers) {
-      ctrl.onDestroy?.();
-    }
-
-    this.onDestroy();
-
-    this._inLifecycle = null;
-  }
-
-  private _diff(newNodes: Blueprint[]) {
-    const _destroy = (node: Blueprint) => {
-      if (node._ins) {
-        if ((node._ins as any).dispose) {
-          (node._ins as any).dispose();
-        } else {
-          node._ins.destroy();
-        }
-
-        node._ins = null;
-      }
-    };
-
-    const _create = (node: Blueprint) => {
-      const Type = (this._registry as any).get(node.type);
-      if (!Type) throw new Error(`component "${node.type}" not found`);
-
-      let _ins: any;
-
-      if (Type.create) {
-        _ins = (Type as IComponentFactory<any>).create(node.key, { ...node.props, __context: this.context });
-      }
-
-      // legacy component
-      else {
-        _ins = new Type(this.context, this._registry);
-
-        _ins.dispatch(node.props);
-        _ins.init();
-      }
-
-      node._ins = _ins;
-    };
-
-    const oldNodes = this._lastNodes;
-    const oldNodeMap = new Map<string, Blueprint>(oldNodes.map(n => [n.key, n]));
-    const newNodeMap = new Map<string, Blueprint>(newNodes.map(n => [n.key, n]));
-
-    const _toDestroyKeys = new Set<string>();
-    const _toCreateKeys = new Set<string>();
-    const _toUpdateKeys = new Set<string>();
-
-    for (let i = 0; i < oldNodes.length; i++) {
-      const _n = oldNodes[i];
-      _toUpdateKeys.add(_n.key);
-      if (!newNodeMap.has(_n.key)) _toDestroyKeys.add(_n.key);
-    }
-
-    for (let i = 0; i < newNodes.length; i++) {
-      const _n = newNodes[i];
-      _toUpdateKeys.add(_n.key);
-      if (!oldNodeMap.has(_n.key)) _toCreateKeys.add(_n.key);
-    }
-
-    // 卸载
-    for (const _k of _toDestroyKeys) {
-      _toUpdateKeys.delete(_k);
-      _destroy(oldNodeMap.get(_k)!);
-    }
-
-    // 创建
-    for (const _k of _toCreateKeys) {
-      _toUpdateKeys.delete(_k);
-      _create(newNodeMap.get(_k)!);
-    }
-
-    // 更新
-    for (const _k of _toUpdateKeys) {
-      const prev = oldNodeMap.get(_k)!;
-      const next = newNodeMap.get(_k)!;
-
-      // 类型相同，递归更新
-      if (prev.type === next.type) {
-        if (!prev._ins) throw new Error('prev._ins not exists');
-        if (!next._ins) next._ins = prev._ins; // 传递实例
-
-        // legacy component
-        if (next._ins.dispatch) {
-          next._ins.dispatch(next.props);
-        } else {
-          (next._ins as any as IComponentInstance<any>).update(next.props);
-        }
-      }
-
-      // 类型不同，卸载 prev，创建 next
-      else {
-        _destroy(prev);
-        _create(next);
-      }
-    }
-
-    this._lastNodes = newNodes;
-  }
-}
-
-/**
- * 控制器
- */
 export type IController = {
   onInit?(): any;
   onBeforeUpdate?(): any;
@@ -449,45 +42,361 @@ export type IController = {
   onMutateBlueprints?(list: Blueprint[]): Blueprint[];
 };
 
-export function getComponent<T extends keyof IComponentInfoMap, CT = any>(
-  comp: T,
-  props: IComponentInfoMap[T],
-  context: CT,
-  registry = ComponentRegistry.Default
-) {
-  const Type = registry.get(comp);
-  if (!Type) throw new Error(`component "${comp}" not found`);
+export type IOnBeforeUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => void;
+export type IOnUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => Blueprint[] | void;
+export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => void;
 
-  const ins = new Type(context, registry) as Component<CT, IComponentInfoMap[T]>;
+export type ICreateContextCB = <T>(key: IContextDefinition<T>, value: T) => T;
+export type IGetContextCB = <T>(key: IContextDefinition<T>) => T;
 
-  ins.dispatch(props);
-  ins.init();
+export type IPropSubjects<P extends Record<string, any>> = {
+  [K in keyof P as K extends string ? `${K}$` : never]-?: BehaviorSubject<P[K]>;
+};
 
-  return ins;
+export type IComponentContext<P extends Record<string, any>> = {
+  key: string;
+
+  P: IPropSubjects<P>;
+  afterInput$: Subject<Set<keyof P>>;
+  afterUpdate$: Subject<void>;
+  dispose$: Subject<void>;
+
+  select: <T extends readonly unknown[]>(sources: readonly [...ObservableInputTuple<T>]) => Observable<T>;
+  bufferInput: <T>() => OperatorFunction<T, T>;
+  takeUntilDispose: <T>() => MonoTypeOperatorFunction<T>;
+
+  createContext: ICreateContextCB;
+  getContext: IGetContextCB;
+};
+
+export type ISetupCallback<P extends Record<string, any>> = (ctx: IComponentContext<P>) => Observable<Blueprint[]> | void;
+
+export interface IComponentDefinition<P extends Record<string, any>> {
+  defaultProps: Required<P>;
+  setup: ISetupCallback<Required<P>>;
+  options?: IOptionsMap<Required<P>>;
 }
 
-export interface IComponentInfoMap {}
+export interface IComponentFactory<P extends Record<string, any>> {
+  def: IComponentDefinition<P>;
+  create: (
+    key: string,
+    props?: P,
+    parent?: IComponentInstance<any>,
+    beforeSetup?: (ctx: IComponentContext<P>) => void
+  ) => IComponentInstance<P>;
+}
 
-export class ComponentRegistry {
-  static get Default() {
-    // @ts-ignore
-    const _gl: any = typeof window !== 'undefined' ? window : global;
-    const key = 'RECYCLEX_COMPONENT_REGISTRY';
+export interface IComponentInstance<P extends Record<string, any>> {
+  key: string;
+  parent?: IComponentInstance<any>;
 
-    if (!_gl[key]) _gl[key] = new ComponentRegistry();
+  contextStore: Map<string, any>;
 
-    return _gl[key] as ComponentRegistry;
-  }
+  createContext: ICreateContextCB;
+  getContext: IGetContextCB;
 
-  private _map = new Map<string, ComponentType>();
+  update(newProps: P): void;
+  dispose(): void;
+}
 
-  register<T extends keyof IComponentInfoMap>(name: T, Type: ComponentType): void;
-  register(name: string, Type: IComponentFactory<any>): void;
-  register(name: any, Type: any) {
-    this._map.set(name, Type);
-  }
+export function blueprint<P extends Record<string, any>>(factory: IComponentFactory<P>, props: P, key: string): Blueprint {
+  // @ts-expect-error
+  return { factory, props, key };
+}
 
-  get<T extends keyof IComponentInfoMap>(name: T): ComponentType | undefined {
-    return this._map.get(name as any);
-  }
+export function defineContext<T>(key: string): IContextDefinition<T> {
+  return key as any;
+}
+
+export function defineComponent<P extends Record<string, any>>(def: IComponentDefinition<P>): IComponentFactory<P> {
+  type _IChild = Blueprint & { ins?: IComponentInstance<any> };
+
+  const create = (
+    key: string,
+    initProps: P = def.defaultProps,
+    parent?: IComponentInstance<any>,
+    beforeSetup?: (ctx: IComponentContext<P>) => void
+  ) => {
+    const contextStore = new Map<string, any>();
+    const instance: IComponentInstance<P> = { key, contextStore, parent, createContext, getContext, update, dispose };
+
+    const propSubjects: IPropSubjects<P> = {} as any;
+    const inputProps$ = new Subject<P>();
+
+    const afterInput$ = new Subject<Set<keyof P>>();
+    const afterUpdate$ = new Subject<void>();
+    const dispose$ = new Subject<void>();
+
+    const properties = Object.keys(def.defaultProps) as (keyof P)[];
+
+    for (const k of properties) {
+      const v = initProps[k] ?? def.defaultProps[k];
+
+      // @ts-expect-error
+      propSubjects[`${k}$`] = new BehaviorSubject<any>(v);
+    }
+
+    const bufferInput = <T>() => {
+      const fn: OperatorFunction<T, T> = src$ =>
+        src$.pipe(
+          bufferWhen(() => afterInput$),
+          filter(args => args.length > 0),
+          map(args => args[args.length - 1])
+        );
+
+      return fn;
+    };
+
+    const select = <T extends readonly unknown[]>(list: readonly [...ObservableInputTuple<T>]) => {
+      const vSet = new Set(Object.values(propSubjects));
+      const isAllProp = list.every(v => vSet.has(v as any));
+
+      if (!isAllProp) throw new Error('select only support properties stream');
+
+      return combineLatest(list).pipe(bufferInput());
+    };
+
+    const takeUntilDispose = <T>() => takeUntil<T>(dispose$);
+
+    const ctx: IComponentContext<P> = {
+      key,
+      P: propSubjects,
+      afterUpdate$,
+      afterInput$,
+      dispose$,
+      createContext,
+      getContext,
+      bufferInput,
+      select,
+      takeUntilDispose,
+    };
+
+    // setup
+    beforeSetup?.(ctx);
+    const blueprints$ = def.setup(ctx) ?? new Subject<Blueprint[]>();
+
+    let disposed = false;
+    let children: _IChild[] = [];
+
+    const inputSub = inputProps$
+      .pipe(
+        scan(
+          (lastInfos, cur) => {
+            const newInfos: Record<string, { value: any; version: any; changed: boolean }> = {};
+
+            for (const key of properties as string[]) {
+              const newVal = cur[key] ?? def.defaultProps[key];
+
+              const getVersion = def.options?.[key]?.getVersion ?? DefaultOptions.getVersion;
+              const isEqual = def.options?.[key]?.isEqual ?? DefaultOptions.isEqual;
+              const useVersionCheck = def.options?.[key]?.useVersionCheck ?? DefaultOptions.useVersionCheck;
+
+              if (!lastInfos[key]) {
+                newInfos[key] = { value: newVal, version: useVersionCheck ? getVersion(newVal) : undefined, changed: true };
+                continue;
+              }
+
+              let toCompareA: any;
+              let toCompareB: any;
+              let newVersion: any = undefined;
+
+              if (useVersionCheck) {
+                toCompareA = lastInfos[key].version;
+                newVersion = getVersion(newVal);
+                toCompareB = newVersion;
+              } else {
+                toCompareA = lastInfos[key].value;
+                toCompareB = newVal;
+              }
+
+              newInfos[key] = { value: newVal, version: newVersion, changed: !isEqual(toCompareA, toCompareB) };
+            }
+
+            return newInfos;
+          },
+          {} as Record<string, { value: any; version: any; changed: boolean }>
+        ),
+        map(infos => {
+          const entries = Object.entries(infos).filter(([_, info]) => info.changed);
+          if (entries.length === 0) return;
+
+          for (const [k, v] of entries) {
+            propSubjects[`${k}$`].next(v.value);
+          }
+
+          const changes = new Set<string>(entries.map(([key]) => key));
+          return changes;
+        }),
+        tap(changes => {
+          if (changes) afterInput$.next(changes);
+        })
+      )
+      .subscribe();
+
+    const updateSub = blueprints$
+      .pipe(
+        scan(
+          (lastInfo, nextChildren) => {
+            if (disposed) throw new Error('Already disposed');
+
+            const { children: lastChildren, oldChildMap, newChildMap, commonKeys, _toDisposeKeys, _toCreateKeys, _toUpdateKeys } = lastInfo;
+
+            oldChildMap.clear();
+            newChildMap.clear();
+            commonKeys.clear();
+
+            _toDisposeKeys.clear();
+            _toCreateKeys.clear();
+            _toUpdateKeys.clear();
+
+            for (const c of lastChildren) oldChildMap.set(c.key, c);
+            for (const c of nextChildren) newChildMap.set(c.key, c);
+
+            for (const c of lastChildren) commonKeys.add(c.key);
+            for (const c of nextChildren) commonKeys.add(c.key);
+
+            for (let i = 0; i < lastChildren.length; i++) {
+              const _n = lastChildren[i];
+              _toUpdateKeys.add(_n.key);
+              if (!newChildMap.has(_n.key)) _toDisposeKeys.add(_n.key);
+            }
+
+            for (let i = 0; i < nextChildren.length; i++) {
+              const _n = nextChildren[i];
+              _toUpdateKeys.add(_n.key);
+              if (!oldChildMap.has(_n.key)) _toCreateKeys.add(_n.key);
+            }
+
+            // 卸载
+            for (const _k of _toDisposeKeys) {
+              _toUpdateKeys.delete(_k);
+
+              const child = oldChildMap.get(_k)!;
+
+              _disposeChild(child);
+            }
+
+            // 按顺序创建 or 更新
+            for (const child of nextChildren) {
+              // create
+              if (_toCreateKeys.has(child.key)) {
+                _createChild(child);
+              }
+
+              // update
+              else if (_toUpdateKeys.has(child.key)) {
+                const prev = oldChildMap.get(child.key)!;
+                const next = newChildMap.get(child.key)!;
+
+                // 类型相同，递归更新
+                if (prev.factory === next.factory) {
+                  if (!prev.ins) throw new Error('prev.ins not exists');
+                  if (!next.ins) next.ins = prev.ins; // 传递实例
+
+                  // set props
+                  next.ins.update(next.props);
+                }
+
+                // 类型不同，卸载 prev，创建 next
+                else {
+                  _disposeChild(prev);
+                  _createChild(next);
+                }
+              }
+            }
+
+            children = nextChildren;
+            lastInfo.children = nextChildren;
+            return lastInfo;
+          },
+          {
+            children: [] as _IChild[],
+            oldChildMap: new Map<string, _IChild>(),
+            newChildMap: new Map<string, _IChild>(),
+            commonKeys: new Set<string>(),
+            _toDisposeKeys: new Set<string>(),
+            _toCreateKeys: new Set<string>(),
+            _toUpdateKeys: new Set<string>(),
+          }
+        ),
+        tap(() => afterUpdate$.next())
+      )
+      .subscribe();
+
+    // blueprint 订阅完成后，立刻触发一次 afterInput，因为 P 是 BehaviorSubject, 会在订阅时立刻发送一次
+    afterInput$.next(new Set(properties));
+
+    function _disposeChild(child: _IChild) {
+      if (child.ins) {
+        child.ins.dispose();
+        child.ins = undefined;
+      }
+    }
+
+    function _createChild(child: _IChild) {
+      child.ins = child.factory.create(child.key, child.props, instance);
+    }
+
+    function createContext<T>(key: IContextDefinition<T>, value: T) {
+      if (contextStore.has(key)) throw new Error('key already exists');
+      contextStore.set(key, value);
+      return value;
+    }
+
+    function getContext(key: IContextDefinition<any>) {
+      if (contextStore.has(key)) return contextStore.get(key);
+
+      let cur = parent;
+
+      while (cur) {
+        if (cur.contextStore.has(key)) {
+          return cur.contextStore.get(key);
+        }
+
+        cur = cur.parent;
+      }
+
+      throw new Error('context not found: ' + key);
+    }
+
+    function update(newProps: P) {
+      if (disposed) throw new Error('Already disposed');
+      inputProps$.next(newProps);
+    }
+
+    function dispose() {
+      if (disposed) throw new Error('Already disposed');
+
+      for (let i = children.length - 1; i >= 0; i--) {
+        children[i].ins?.dispose();
+      }
+
+      updateSub.unsubscribe();
+      inputSub.unsubscribe();
+
+      // complete
+      inputProps$.complete();
+      afterUpdate$.complete();
+      afterInput$.complete();
+
+      for (const sub of contextStore.values()) {
+        sub.complete();
+      }
+
+      for (const sub of Object.values(propSubjects)) {
+        sub.complete();
+      }
+
+      dispose$.next();
+      dispose$.complete();
+
+      children.length = 0;
+      disposed = true;
+    }
+
+    return instance;
+  };
+
+  return { def, create };
 }

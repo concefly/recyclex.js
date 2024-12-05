@@ -1,423 +1,407 @@
 import { it, expect } from 'vitest';
-import { Component, Reactive, ComponentRegistry, Blueprint, getComponent } from '../src';
+import { blueprint, defineComponent, defineContext } from '../src';
+import { BehaviorSubject, combineLatest, map } from 'rxjs';
 
-declare module '../src' {
-  interface IComponentInfoMap {
-    [key: string]: any;
-  }
-}
-
-class TestComp extends Component {
-  stringify(desc: string, json?: boolean): string {
-    let text = `<${this.constructor.name}> ${desc}`;
-    const meta = this.meta;
-
-    for (const [key] of meta.properties) {
-      if (json) {
-        text += ` ${key}=${JSON.stringify((this as any)[key])},`;
-      } else {
-        text += ` ${key}=${(this as any)[key] + ''},`;
-      }
-    }
-
-    return text;
-  }
-}
-
-it('meta data', () => {
-  class A extends Component {
-    @Reactive()
-    name = 'A';
-
-    @Reactive()
-    color = 'red';
-  }
-
-  class B extends A {
-    @Reactive()
-    name2 = 'B';
-
-    @Reactive()
-    color2 = 'blue';
-  }
-
-  const a = new A(null);
-  const b = new B(null);
-
-  const aMeta = a.meta;
-  const bMeta = b.meta;
-
-  expect(aMeta).toEqual({
-    properties: new Map([
-      ['name', {}],
-      ['color', {}],
-    ]),
-  });
-
-  expect(bMeta).toEqual({
-    properties: new Map([
-      ['name', {}],
-      ['color', {}],
-      ['name2', {}],
-      ['color2', {}],
-    ]),
-  });
-});
-
-it('life cycle', () => {
-  const registry = new ComponentRegistry();
+it('Single Component Lifecycle', () => {
   const timelines: string[] = [];
 
-  class B extends TestComp {
-    @Reactive()
-    text = 'x';
+  const A = defineComponent({
+    defaultProps: { n: 1 },
+    setup: ctx => {
+      timelines.push(`a init`);
 
-    onInit(): void {
-      timelines.push('  ' + this.stringify('onInit'));
-    }
+      ctx.afterUpdate$.subscribe(() => {
+        timelines.push('a afterUpdate');
+      });
 
-    onBeforeUpdate(): void {
-      timelines.push('  ' + this.stringify('onBeforeUpdate'));
-    }
+      ctx.dispose$.subscribe(() => {
+        timelines.push('a dispose');
+      });
 
-    onAfterUpdate(): void {
-      timelines.push('  ' + this.stringify('onAfterUpdate'));
-    }
+      return combineLatest([ctx.P.n$]).pipe(
+        map(([n]) => {
+          timelines.push(`a update: n=${n}`);
+          return [];
+        })
+      );
+    },
+  });
 
-    onUpdate(): Blueprint[] {
-      timelines.push('  ' + this.stringify('onUpdate'));
-      return [];
-    }
+  const a = A.create('root');
 
-    onDestroy(): void {
-      timelines.push('  ' + this.stringify('onDestroy'));
-    }
-  }
+  a.update({ n: 2 });
+  a.update({ n: 2 });
 
-  class A extends TestComp {
-    @Reactive()
-    name = 'Jam';
+  a.update({ n: 3 });
+  a.update({ n: 3 });
 
-    @Reactive()
-    color = 'red';
-
-    onInit(): void {
-      timelines.push(this.stringify('onInit'));
-    }
-
-    onUpdate(): Blueprint[] {
-      timelines.push(this.stringify('onUpdate'));
-      return [Blueprint.of('B', { text: [this.name, this.color].join('-') })];
-    }
-
-    onBeforeUpdate(): void {
-      timelines.push(this.stringify('onBeforeUpdate'));
-    }
-
-    onAfterUpdate(): void {
-      timelines.push(this.stringify('onAfterUpdate'));
-    }
-
-    onDestroy(): void {
-      timelines.push(this.stringify('onDestroy'));
-    }
-  }
-
-  registry.register('A', A);
-  registry.register('B', B);
-
-  const host = getComponent('A', {}, null, registry);
-  host.dispatch({});
-  expect(timelines).toMatchInlineSnapshot(`
-    [
-      "<A> onInit name=Jam, color=red,",
-      "<A> onBeforeUpdate name=Jam, color=red,",
-      "<A> onUpdate name=Jam, color=red,",
-      "  <B> onInit text=Jam-red,",
-      "  <B> onBeforeUpdate text=Jam-red,",
-      "  <B> onUpdate text=Jam-red,",
-      "  <B> onAfterUpdate text=Jam-red,",
-      "<A> onAfterUpdate name=Jam, color=red,",
-    ]
-  `);
-
-  host.dispatch({ name: 'Tom' });
-  host.dispatch({ name: 'Jane' });
-  host.destroy();
+  a.dispose();
 
   expect(timelines).toMatchInlineSnapshot(`
     [
-      "<A> onInit name=Jam, color=red,",
-      "<A> onBeforeUpdate name=Jam, color=red,",
-      "<A> onUpdate name=Jam, color=red,",
-      "  <B> onInit text=Jam-red,",
-      "  <B> onBeforeUpdate text=Jam-red,",
-      "  <B> onUpdate text=Jam-red,",
-      "  <B> onAfterUpdate text=Jam-red,",
-      "<A> onAfterUpdate name=Jam, color=red,",
-      "<A> onBeforeUpdate name=Tom, color=red,",
-      "<A> onUpdate name=Tom, color=red,",
-      "  <B> onBeforeUpdate text=Tom-red,",
-      "  <B> onUpdate text=Tom-red,",
-      "  <B> onAfterUpdate text=Tom-red,",
-      "<A> onAfterUpdate name=Tom, color=red,",
-      "<A> onBeforeUpdate name=Jane, color=red,",
-      "<A> onUpdate name=Jane, color=red,",
-      "  <B> onBeforeUpdate text=Jane-red,",
-      "  <B> onUpdate text=Jane-red,",
-      "  <B> onAfterUpdate text=Jane-red,",
-      "<A> onAfterUpdate name=Jane, color=red,",
-      "  <B> onDestroy text=Jane-red,",
-      "<A> onDestroy name=Jane, color=red,",
+      "a init",
+      "a update: n=1",
+      "a afterUpdate",
+      "a update: n=2",
+      "a afterUpdate",
+      "a update: n=3",
+      "a afterUpdate",
+      "a dispose",
     ]
   `);
 });
 
-it('equals check', () => {
-  const registry = new ComponentRegistry();
+it('Single Component Lifecycle with initProps', () => {
   const timelines: string[] = [];
 
-  class A extends TestComp {
-    @Reactive()
-    name = 'TOM';
+  const A = defineComponent({
+    defaultProps: { n: 1 },
+    setup: ctx => {
+      timelines.push(`a init`);
 
-    onBeforeUpdate(): void {
-      timelines.push(this.stringify('receive:'));
-    }
-  }
+      ctx.dispose$.subscribe(() => {
+        timelines.push('a dispose');
+      });
 
-  registry.register('A', A);
-  const host = getComponent('A', {}, null, registry);
+      return combineLatest([ctx.P.n$]).pipe(
+        map(([n]) => {
+          timelines.push(`a update: n=${n}`);
+          return [];
+        })
+      );
+    },
+  });
 
-  host.dispatch({ name: 'TOM' });
-  host.dispatch({ name: 'JANE' });
-  host.dispatch({ name: 'JANE' });
+  const a = A.create('root', { n: 2 });
+  a.dispose();
 
   expect(timelines).toMatchInlineSnapshot(`
     [
-      "<A> receive: name=TOM,",
-      "<A> receive: name=JANE,",
+      "a init",
+      "a update: n=2",
+      "a dispose",
     ]
   `);
 });
 
-it('Cannot call requestUpdate in onUpdate', () => {
-  const registry = new ComponentRegistry();
-
-  class A extends TestComp {
-    @Reactive()
-    name = '';
-
-    onUpdate() {
-      this.dispatch({ name: 'JANE' });
-    }
-  }
-
-  registry.register('A', A);
-
-  expect(() => getComponent('A', {}, null, registry)).toThrow('Cannot requestUpdate onUpdate: key=name');
-});
-
-it('set props on lifecycle', () => {
-  const registry = new ComponentRegistry();
-  const timelines: string[] = [];
-
-  class A extends TestComp {
-    @Reactive()
-    name = '';
-
-    @Reactive()
-    color = '';
-
-    onInit(): void {
-      this.dispatch({ name: 'JANE' });
-      this.dispatch({ name: 'JANE2' });
-      this.dispatch({ color: 'RED' });
-    }
-
-    onUpdate(): void {
-      timelines.push(this.stringify('receive:'));
-    }
-  }
-
-  registry.register('A', A);
-  const host = getComponent('A', {}, null, registry);
-
-  host.dispatch({});
-  expect(timelines).toEqual(['<A> receive: name=JANE2, color=RED,']);
-});
-
-it('keys lifecycle', () => {
-  const registry = new ComponentRegistry();
-  const timelines: string[] = [];
-
-  class A extends TestComp {
-    @Reactive() datas!: { id: string; v: string }[];
-
-    onUpdate() {
-      return this.datas.map(({ id, v }) => Blueprint.of('B', { id, v }, id));
-    }
-  }
-
-  class B extends TestComp {
-    @Reactive() id!: string;
-    @Reactive() v!: string;
-
-    onInit(): void {
-      timelines.push(`B_${this.id} init`);
-    }
-
-    onUpdate(): void {
-      timelines.push(`B_${this.id} update`);
-    }
-
-    onDestroy(): void {
-      timelines.push(`B_${this.id} destroy`);
-    }
-  }
-
-  registry.register('A', A);
-  registry.register('B', B);
-
-  const host = getComponent('A', {}, null, registry);
-
-  host.dispatch({
-    datas: [
-      { id: '1', v: 'a' },
-      { id: '2', v: 'b' },
-    ],
+it('Cannot dispose twice', () => {
+  const A = defineComponent({
+    defaultProps: { n: 1 },
+    setup: () => {},
   });
 
-  timelines.push('---');
-  host.dispatch({
-    datas: [
-      { id: '2', v: 'x' },
-      { id: '3', v: 'x' },
-      { id: '4', v: 'x' },
-    ],
+  const a = A.create('root');
+
+  a.dispose();
+
+  expect(() => a.dispose()).toThrow('Already disposed');
+});
+
+it('Cannot update after dispose', () => {
+  const A = defineComponent({
+    defaultProps: { n: 1 },
+    setup: () => {},
   });
 
-  expect(timelines).toEqual([
-    'B_1 init',
-    'B_1 update',
-    'B_2 init',
-    'B_2 update',
-    '---',
-    'B_1 destroy',
-    'B_3 init',
-    'B_3 update',
-    'B_4 init',
-    'B_4 update',
-    'B_2 update',
-  ]);
+  const a = A.create('root');
+
+  a.dispose();
+
+  expect(() => a.update({ n: 2 })).toThrow('Already disposed');
 });
 
-it('standalone component', () => {
+it('Hierarchy Components Lifecycle', () => {
   const timelines: string[] = [];
 
-  class Standalone {
-    @Reactive({
-      onChange(key, value, oldValue) {
-        timelines.push(`Reactive.onChange: key=${key} value=${value} oldValue=${oldValue}`);
-      },
-    })
-    name = 'TOM';
+  const B = defineComponent({
+    defaultProps: { b: 1 },
+    setup: ctx => {
+      timelines.push(`b<${ctx.key}> init`);
 
-    requestUpdate(key: string, oldValue?: any) {
-      timelines.push(`requestUpdate: key=${key} old=${oldValue}`);
-    }
-  }
+      ctx.dispose$.subscribe(() => {
+        timelines.push(`b<${ctx.key}> dispose`);
+      });
 
-  const standalone = new Standalone();
-  standalone.name = 'J1';
-  standalone.name = 'J2';
+      return combineLatest([ctx.P.b$]).pipe(
+        map(([n]) => {
+          timelines.push(`b<${ctx.key}> update: b=${n}`);
+          return [];
+        })
+      );
+    },
+  });
 
-  expect(timelines).toEqual([
-    'Reactive.onChange: key=name value=TOM oldValue=undefined',
-    'requestUpdate: key=name old=undefined',
-    'Reactive.onChange: key=name value=J1 oldValue=TOM',
-    'requestUpdate: key=name old=TOM',
-    'Reactive.onChange: key=name value=J2 oldValue=J1',
-    'requestUpdate: key=name old=J1',
-  ]);
-});
+  const A = defineComponent({
+    defaultProps: { a: 1 },
+    setup: ctx => {
+      timelines.push(`a<${ctx.key}> init`);
 
-it('standalone component (extends)', () => {
-  const timelines: string[] = [];
+      ctx.dispose$.subscribe(() => {
+        timelines.push(`a<${ctx.key}> dispose`);
+      });
 
-  class Standalone extends TestComp {
-    @Reactive() name = 'TOM';
+      return combineLatest([ctx.P.a$]).pipe(
+        map(([a]) => {
+          timelines.push(`a<${ctx.key}> update: a=${a}`);
 
-    onInit(): void {
-      timelines.push(this.stringify('onInit'));
-    }
+          if (a === 1) return [blueprint(B, { b: 1 }, '1')];
+          if (a === 2) return [blueprint(B, { b: 1.1 }, '1'), blueprint(B, { b: 2 }, '2')];
+          if (a === 3) return [blueprint(B, { b: 2.1 }, '2')];
 
-    protected onBeforeUpdate(): void {
-      timelines.push(this.stringify('onBeforeUpdate'));
-    }
+          return [];
+        })
+      );
+    },
+  });
 
-    protected onAfterUpdate(): void {
-      timelines.push(this.stringify('onAfterUpdate'));
-    }
+  const root = A.create('root');
 
-    protected onUpdate(): void {
-      timelines.push(this.stringify('onUpdate'));
-    }
+  root.update({ a: 2 });
+  root.update({ a: 3 });
 
-    protected onDestroy(): void {
-      timelines.push(this.stringify('onDestroy'));
-    }
-  }
-
-  const ins = new Standalone(null);
-  ins.init();
-
-  ins.name = 'J1';
-  ins.name = 'J2';
-
-  ins.destroy();
-
-  expect(timelines).toEqual([
-    '<Standalone> onInit name=TOM,',
-    '<Standalone> onBeforeUpdate name=TOM,',
-    '<Standalone> onUpdate name=TOM,',
-    '<Standalone> onAfterUpdate name=TOM,',
-    '<Standalone> onBeforeUpdate name=J1,',
-    '<Standalone> onUpdate name=J1,',
-    '<Standalone> onAfterUpdate name=J1,',
-    '<Standalone> onBeforeUpdate name=J2,',
-    '<Standalone> onUpdate name=J2,',
-    '<Standalone> onAfterUpdate name=J2,',
-    '<Standalone> onDestroy name=J2,',
-  ]);
-});
-
-it('version check', () => {
-  const registry = new ComponentRegistry();
-  const timelines: string[] = [];
-
-  class A extends TestComp {
-    @Reactive({ versionCheck: v => v.a }) data = { a: 1 };
-
-    onBeforeUpdate(): void {
-      timelines.push(this.stringify('receive:', true));
-    }
-  }
-
-  registry.register('A', A);
-  const host = getComponent('A', {}, null, registry);
-
-  host.dispatch({ data: { a: 1 } });
-  host.dispatch({ data: { a: 1 } });
-  host.dispatch({ data: { a: 1 } });
-  host.dispatch({ data: { a: 2 } });
-  host.dispatch({ data: { a: 2 } });
-  host.dispatch({ data: { a: 2 } });
+  root.dispose();
 
   expect(timelines).toMatchInlineSnapshot(`
     [
-      "<A> receive: data={"a":1},",
-      "<A> receive: data={"a":2},",
+      "a<root> init",
+      "a<root> update: a=1",
+      "b<1> init",
+      "b<1> update: b=1",
+      "a<root> update: a=2",
+      "b<1> update: b=1.1",
+      "b<2> init",
+      "b<2> update: b=2",
+      "a<root> update: a=3",
+      "b<1> dispose",
+      "b<2> update: b=2.1",
+      "b<2> dispose",
+      "a<root> dispose",
+    ]
+  `);
+});
+
+it('Hierarchy Components Context', () => {
+  const timelines: string[] = [];
+
+  const userContext = defineContext<BehaviorSubject<string>>('user');
+
+  const B = defineComponent({
+    defaultProps: { b: 1 },
+    setup: ctx => {
+      timelines.push(`b<${ctx.key}> init`);
+
+      const user = ctx.getContext(userContext);
+      timelines.push(`b<${ctx.key}> user: ${user.value}`);
+
+      ctx.dispose$.subscribe(() => {
+        timelines.push(`b<${ctx.key}> dispose`);
+      });
+
+      return combineLatest([ctx.P.b$]).pipe(
+        map(() => {
+          timelines.push(`b<${ctx.key}> update user: ${user.value}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const A = defineComponent({
+    defaultProps: { a: 1 },
+    setup: ctx => {
+      timelines.push(`a<${ctx.key}> init`);
+
+      const user = ctx.createContext(userContext, new BehaviorSubject('xxx'));
+      timelines.push(`a<${ctx.key}> user: ${user.value}`);
+
+      user.next('user_1');
+
+      ctx.dispose$.subscribe(() => {
+        timelines.push(`a<${ctx.key}> dispose`);
+      });
+
+      return combineLatest([ctx.P.a$]).pipe(
+        map(([a]) => {
+          if (a === 2) {
+            user.next('user_2');
+          }
+
+          return [blueprint(B, { b: a }, '1')];
+        })
+      );
+    },
+  });
+
+  const root = A.create('root');
+
+  root.update({ a: 2 });
+  root.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a<root> init",
+      "a<root> user: xxx",
+      "b<1> init",
+      "b<1> user: user_1",
+      "b<1> update user: user_1",
+      "b<1> update user: user_2",
+      "b<1> dispose",
+      "a<root> dispose",
+    ]
+  `);
+});
+
+it('Hierarchy Components Context Subscribe', async () => {
+  const timelines: string[] = [];
+
+  const userContext = defineContext<BehaviorSubject<string>>('user');
+
+  const B = defineComponent({
+    defaultProps: {},
+    setup: ctx => {
+      const userContextVal$ = ctx.getContext(userContext);
+
+      return userContextVal$.pipe(
+        map(() => {
+          timelines.push(`b<${ctx.key}> update user: ${userContextVal$.value}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const A = defineComponent({
+    defaultProps: { a: 1 },
+    setup: ctx => {
+      const userContextVal = ctx.createContext(userContext, new BehaviorSubject('xxx'));
+
+      setTimeout(() => {
+        userContextVal.next('user_1');
+        userContextVal.next('user_2');
+      }, 0);
+
+      return combineLatest([ctx.P.a$]).pipe(
+        map(() => {
+          return [blueprint(B, {}, '1')];
+        })
+      );
+    },
+  });
+
+  const root = A.create('root');
+
+  await new Promise<void>(resolve => setTimeout(resolve, 100));
+
+  root.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "b<1> update user: xxx",
+      "b<1> update user: user_1",
+      "b<1> update user: user_2",
+    ]
+  `);
+});
+
+it('Missing Key', () => {
+  const timelines: string[] = [];
+
+  const A = defineComponent<{ n: number; k?: string }>({
+    defaultProps: { n: 1, k: '_default_' },
+    setup: ctx => {
+      return combineLatest([ctx.P.n$, ctx.P.k$]).pipe(
+        map(([n, k]) => {
+          timelines.push(`a update: n=${n}, k=${k}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const a = A.create('root');
+
+  a.update({ n: 2, k: 'a' });
+  a.update({ n: 3 });
+  a.update({ n: 4, k: 'b' });
+
+  a.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a update: n=1, k=_default_",
+      "a update: n=2, k=_default_",
+      "a update: n=2, k=a",
+      "a update: n=3, k=a",
+      "a update: n=3, k=_default_",
+      "a update: n=4, k=_default_",
+      "a update: n=4, k=b",
+    ]
+  `);
+});
+
+it('bufferInput', () => {
+  const timelines: string[] = [];
+
+  const A = defineComponent<{ n: number; k?: string }>({
+    defaultProps: { n: 1, k: '_default_' },
+    setup: ctx => {
+      return combineLatest([ctx.P.n$, ctx.P.k$]).pipe(
+        ctx.bufferInput(),
+        map(([n, k]) => {
+          timelines.push(`a update: n=${n}, k=${k}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const a = A.create('root');
+
+  a.update({ n: 2, k: 'a' });
+  a.update({ n: 3 });
+  a.update({ n: 4, k: 'b' });
+
+  a.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a update: n=1, k=_default_",
+      "a update: n=2, k=a",
+      "a update: n=3, k=_default_",
+      "a update: n=4, k=b",
+    ]
+  `);
+});
+
+it('props select', () => {
+  const timelines: string[] = [];
+
+  const A = defineComponent<{ n: number; k?: string }>({
+    defaultProps: { n: 1, k: '_default_' },
+    setup: ctx => {
+      return ctx.select([ctx.P.n$, ctx.P.k$]).pipe(
+        map(([n, k]) => {
+          timelines.push(`a update: n=${n}, k=${k}`);
+          return [];
+        })
+      );
+    },
+  });
+
+  const a = A.create('root');
+
+  a.update({ n: 2, k: 'a' });
+  a.update({ n: 3 });
+  a.update({ n: 4, k: 'b' });
+
+  a.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a update: n=1, k=_default_",
+      "a update: n=2, k=a",
+      "a update: n=3, k=_default_",
+      "a update: n=4, k=b",
     ]
   `);
 });
