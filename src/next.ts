@@ -10,6 +10,8 @@ import {
   ObservableInputTuple,
   combineLatest,
   filter,
+  takeUntil,
+  MonoTypeOperatorFunction,
 } from 'rxjs';
 
 export type IOptions<_K, V> = {
@@ -61,6 +63,7 @@ export type IComponentContext<P extends Record<string, any>> = {
 
   select: <T extends readonly unknown[]>(sources: readonly [...ObservableInputTuple<T>]) => Observable<T>;
   bufferInput: <T>() => OperatorFunction<T, T>;
+  takeUntilDispose: <T>() => MonoTypeOperatorFunction<T>;
 
   createContext: ICreateContextCB;
   getContext: IGetContextCB;
@@ -70,8 +73,8 @@ export type ISetupCallback<P extends Record<string, any>> = (ctx: IComponentCont
 
 export interface IComponentDefinition<P extends Record<string, any>> {
   defaultProps: Required<P>;
-  setup: ISetupCallback<P>;
-  options?: IOptionsMap<P>;
+  setup: ISetupCallback<Required<P>>;
+  options?: IOptionsMap<Required<P>>;
 }
 
 export interface IComponentFactory<P extends Record<string, any>> {
@@ -144,6 +147,8 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       return combineLatest(list).pipe(bufferInput());
     };
 
+    const takeUntilDispose = <T>() => takeUntil<T>(dispose$);
+
     const ctx: IComponentContext<P> = {
       key,
       P: propSubjects,
@@ -154,6 +159,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       getContext,
       bufferInput,
       select,
+      takeUntilDispose,
     };
 
     // setup
