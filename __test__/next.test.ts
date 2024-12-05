@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { blueprint, defineComponent, defineContext } from '../src/next';
-import { combineLatest, map } from 'rxjs';
+import { BehaviorSubject, combineLatest, map } from 'rxjs';
 
 it('Single Component Lifecycle', () => {
   const timelines: string[] = [];
@@ -183,15 +183,15 @@ it('Hierarchy Components Lifecycle', () => {
 it('Hierarchy Components Context', () => {
   const timelines: string[] = [];
 
-  const userContext = defineContext('user');
+  const userContext = defineContext<BehaviorSubject<string>>('user');
 
   const B = defineComponent({
     defaultProps: { b: 1 },
     setup: ctx => {
       timelines.push(`b<${ctx.key}> init`);
 
-      const userContextVal = ctx.getContext(userContext);
-      timelines.push(`b<${ctx.key}> user: ${userContextVal.value}`);
+      const user = ctx.getContext(userContext);
+      timelines.push(`b<${ctx.key}> user: ${user.value}`);
 
       ctx.dispose$.subscribe(() => {
         timelines.push(`b<${ctx.key}> dispose`);
@@ -199,7 +199,7 @@ it('Hierarchy Components Context', () => {
 
       return combineLatest([ctx.P.b$]).pipe(
         map(() => {
-          timelines.push(`b<${ctx.key}> update user: ${userContextVal.value}`);
+          timelines.push(`b<${ctx.key}> update user: ${user.value}`);
           return [];
         })
       );
@@ -211,10 +211,10 @@ it('Hierarchy Components Context', () => {
     setup: ctx => {
       timelines.push(`a<${ctx.key}> init`);
 
-      const userContextVal = ctx.createContext(userContext, 'xxx');
-      timelines.push(`a<${ctx.key}> user: ${userContextVal.value}`);
+      const user = ctx.createContext(userContext, new BehaviorSubject('xxx'));
+      timelines.push(`a<${ctx.key}> user: ${user.value}`);
 
-      userContextVal.next('user_1');
+      user.next('user_1');
 
       ctx.dispose$.subscribe(() => {
         timelines.push(`a<${ctx.key}> dispose`);
@@ -223,7 +223,7 @@ it('Hierarchy Components Context', () => {
       return combineLatest([ctx.P.a$]).pipe(
         map(([a]) => {
           if (a === 2) {
-            userContextVal.next('user_2');
+            user.next('user_2');
           }
 
           return [blueprint(B, { b: a }, '1')];
@@ -254,7 +254,7 @@ it('Hierarchy Components Context', () => {
 it('Hierarchy Components Context Subscribe', async () => {
   const timelines: string[] = [];
 
-  const userContext = defineContext('user');
+  const userContext = defineContext<BehaviorSubject<string>>('user');
 
   const B = defineComponent({
     defaultProps: {},
@@ -273,7 +273,7 @@ it('Hierarchy Components Context Subscribe', async () => {
   const A = defineComponent({
     defaultProps: { a: 1 },
     setup: ctx => {
-      const userContextVal = ctx.createContext(userContext, 'xxx');
+      const userContextVal = ctx.createContext(userContext, new BehaviorSubject('xxx'));
 
       setTimeout(() => {
         userContextVal.next('user_1');
