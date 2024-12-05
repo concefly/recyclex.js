@@ -79,7 +79,12 @@ export interface IComponentDefinition<P extends Record<string, any>> {
 
 export interface IComponentFactory<P extends Record<string, any>> {
   def: IComponentDefinition<P>;
-  create: (key: string, props?: P, parent?: IComponentInstance<any>) => IComponentInstance<P>;
+  create: (
+    key: string,
+    props?: P,
+    parent?: IComponentInstance<any>,
+    beforeSetup?: (ctx: IComponentContext<P>) => void
+  ) => IComponentInstance<P>;
 }
 
 export interface IComponentInstance<P extends Record<string, any>> {
@@ -107,7 +112,12 @@ export function defineContext<T>(key: string): IContextDefinition<T> {
 export function defineComponent<P extends Record<string, any>>(def: IComponentDefinition<P>): IComponentFactory<P> {
   type _IChild = Blueprint & { ins?: IComponentInstance<any> };
 
-  const create = (key: string, initProps: P = def.defaultProps, parent?: IComponentInstance<any>) => {
+  const create = (
+    key: string,
+    initProps: P = def.defaultProps,
+    parent?: IComponentInstance<any>,
+    beforeSetup?: (ctx: IComponentContext<P>) => void
+  ) => {
     const contextStore = new Map<string, any>();
     const instance: IComponentInstance<P> = { key, contextStore, parent, createContext, getContext, update, dispose };
 
@@ -163,6 +173,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     };
 
     // setup
+    beforeSetup?.(ctx);
     const blueprints$ = def.setup(ctx) ?? new Subject<Blueprint[]>();
 
     let disposed = false;
