@@ -48,6 +48,7 @@ export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes
 
 export type ICreateContextCB = <T>(key: IContextDefinition<T>, defaultValue: T) => BehaviorSubject<T>;
 export type IGetContextCB = <T>(key: IContextDefinition<T>) => BehaviorSubject<T>;
+export type IAsContextCB = <T>(key: IContextDefinition<T>, source: Observable<T>) => void;
 
 export type IPropSubjects<P extends Record<string, any>> = {
   [K in keyof P as K extends string ? `${K}$` : never]-?: BehaviorSubject<P[K]>;
@@ -67,6 +68,7 @@ export type IComponentContext<P extends Record<string, any>> = {
 
   createContext: ICreateContextCB;
   getContext: IGetContextCB;
+  asContext: IAsContextCB;
 };
 
 export type ISetupCallback<P extends Record<string, any>> = (ctx: IComponentContext<P>) => Observable<Blueprint[]> | void;
@@ -118,7 +120,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     parent?: IComponentInstance<any>,
     beforeSetup?: (ctx: IComponentContext<P>) => void
   ) => {
-    const contextStore = new Map<string, any>();
+    const contextStore = new Map<string, BehaviorSubject<any>>();
     const instance: IComponentInstance<P> = { key, contextStore, parent, createContext, getContext, update, dispose };
 
     const propSubjects: IPropSubjects<P> = {} as any;
@@ -167,6 +169,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       dispose$,
       createContext,
       getContext,
+      asContext,
       bufferInput,
       select,
       takeUntilDispose,
@@ -347,6 +350,11 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       return sub;
     }
 
+    function asContext(key: IContextDefinition<any>, source: Observable<any>) {
+      const sub = createContext(key);
+      source.subscribe(sub);
+    }
+
     function getContext(key: IContextDefinition<any>) {
       if (contextStore.has(key)) return contextStore.get(key);
 
@@ -382,6 +390,10 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       inputProps$.complete();
       afterUpdate$.complete();
       afterInput$.complete();
+
+      for (const sub of contextStore.values()) {
+        sub.complete();
+      }
 
       for (const sub of Object.values(propSubjects)) {
         sub.complete();
