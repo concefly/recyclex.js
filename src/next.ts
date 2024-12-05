@@ -9,6 +9,7 @@ import {
   OperatorFunction,
   ObservableInputTuple,
   combineLatest,
+  filter,
 } from 'rxjs';
 
 export type IOptions<_K, V> = {
@@ -127,6 +128,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       const fn: OperatorFunction<T, T> = src$ =>
         src$.pipe(
           bufferWhen(() => afterInput$),
+          filter(args => args.length > 0),
           map(args => args[args.length - 1])
         );
 
@@ -134,6 +136,11 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     };
 
     const select = <T extends readonly unknown[]>(list: readonly [...ObservableInputTuple<T>]) => {
+      const vSet = new Set(Object.values(propSubjects));
+      const isAllProp = list.every(v => vSet.has(v as any));
+
+      if (!isAllProp) throw new Error('select only support properties stream');
+
       return combineLatest(list).pipe(bufferInput());
     };
 
@@ -195,6 +202,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
         ),
         map(infos => {
           const entries = Object.entries(infos).filter(([_, info]) => info.changed);
+          if (entries.length === 0) return;
 
           for (const [k, v] of entries) {
             propSubjects[`${k}$`].next(v.value);
@@ -203,7 +211,9 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
           const changes = new Set<string>(entries.map(([key]) => key));
           return changes;
         }),
-        tap(changes => afterInput$.next(changes))
+        tap(changes => {
+          if (changes) afterInput$.next(changes);
+        })
       )
       .subscribe();
 
