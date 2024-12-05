@@ -1,3 +1,5 @@
+import { IComponentFactory, IComponentInstance } from './next';
+
 export type IProps = Record<string, any>;
 
 export interface ComponentType {
@@ -311,7 +313,11 @@ export class Component<CT = any, P extends IProps = any> {
 
     for (const node of this._lastNodes) {
       if (node._ins) {
-        node._ins.destroy();
+        if ((node._ins as any).dispose) {
+          (node._ins as any).dispose();
+        } else {
+          node._ins.destroy();
+        }
         node._ins = null;
       }
     }
@@ -338,7 +344,12 @@ export class Component<CT = any, P extends IProps = any> {
   private _diff(newNodes: Blueprint[]) {
     const _destroy = (node: Blueprint) => {
       if (node._ins) {
-        node._ins.destroy();
+        if ((node._ins as any).dispose) {
+          (node._ins as any).dispose();
+        } else {
+          node._ins.destroy();
+        }
+
         node._ins = null;
       }
     };
@@ -347,11 +358,21 @@ export class Component<CT = any, P extends IProps = any> {
       const Type = (this._registry as any).get(node.type);
       if (!Type) throw new Error(`component "${node.type}" not found`);
 
-      const _ins = new Type(this.context, this._registry);
-      node._ins = _ins;
+      let _ins: any;
 
-      _ins.dispatch(node.props);
-      _ins.init();
+      if (Type.create) {
+        _ins = (Type as IComponentFactory<any>).create(node.key, { ...node.props, __context: this.context });
+      }
+
+      // legacy component
+      else {
+        _ins = new Type(this.context, this._registry);
+
+        _ins.dispatch(node.props);
+        _ins.init();
+      }
+
+      node._ins = _ins;
     };
 
     const oldNodes = this._lastNodes;
@@ -396,8 +417,12 @@ export class Component<CT = any, P extends IProps = any> {
         if (!prev._ins) throw new Error('prev._ins not exists');
         if (!next._ins) next._ins = prev._ins; // 传递实例
 
-        // set props
-        next._ins.dispatch(next.props);
+        // legacy component
+        if (next._ins.dispatch) {
+          next._ins.dispatch(next.props);
+        } else {
+          (next._ins as any as IComponentInstance<any>).update(next.props);
+        }
       }
 
       // 类型不同，卸载 prev，创建 next
@@ -451,13 +476,15 @@ export class ComponentRegistry {
 
     if (!_gl[key]) _gl[key] = new ComponentRegistry();
 
-    return _gl[key];
+    return _gl[key] as ComponentRegistry;
   }
 
   private _map = new Map<string, ComponentType>();
 
-  register<T extends keyof IComponentInfoMap>(name: T, Type: ComponentType) {
-    this._map.set(name as any, Type);
+  register<T extends keyof IComponentInfoMap>(name: T, Type: ComponentType): void;
+  register(name: string, Type: IComponentFactory<any>): void;
+  register(name: any, Type: any) {
+    this._map.set(name, Type);
   }
 
   get<T extends keyof IComponentInfoMap>(name: T): ComponentType | undefined {
