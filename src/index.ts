@@ -380,10 +380,6 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       afterUpdate$.complete();
       afterInput$.complete();
 
-      for (const sub of contextStore.values()) {
-        sub.complete();
-      }
-
       for (const sub of Object.values(propSubjects)) {
         sub.complete();
       }
