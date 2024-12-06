@@ -12,6 +12,7 @@ import {
   filter,
   takeUntil,
   MonoTypeOperatorFunction,
+  Subscription,
 } from 'rxjs';
 
 export type IOptions<_K, V> = {
@@ -64,6 +65,8 @@ export type IComponentContext<P extends Record<string, any>> = {
   select: <T extends readonly unknown[]>(sources: readonly [...ObservableInputTuple<T>]) => Observable<T>;
   bufferInput: <T>() => OperatorFunction<T, T>;
   takeUntilDispose: <T>() => MonoTypeOperatorFunction<T>;
+
+  addSub: (...subs: Subscription[]) => void;
 
   createContext: ICreateContextCB;
   getContext: IGetContextCB;
@@ -159,6 +162,12 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
 
     const takeUntilDispose = <T>() => takeUntil<T>(dispose$);
 
+    const addSub = (...subs: Subscription[]) => {
+      for (const sub of subs) {
+        dispose$.subscribe(() => sub.unsubscribe());
+      }
+    };
+
     const ctx: IComponentContext<P> = {
       key,
       P: propSubjects,
@@ -170,6 +179,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       bufferInput,
       select,
       takeUntilDispose,
+      addSub,
     };
 
     // setup
