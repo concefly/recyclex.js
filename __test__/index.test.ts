@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { blueprint, defineComponent, defineContext } from '../src';
+import { blueprint, defineComponent, defineContext, IInstanceType } from '../src';
 import { BehaviorSubject, combineLatest, map } from 'rxjs';
 
 it('Single Component Lifecycle', () => {
@@ -402,6 +402,72 @@ it('props select', () => {
       "a update: n=2, k=a",
       "a update: n=3, k=_default_",
       "a update: n=4, k=b",
+    ]
+  `);
+});
+
+it('Single Component Ref', () => {
+  const A = defineComponent<{ n: number }, { name: string }>({
+    defaultProps: { n: 1 },
+    setup: ctx => {
+      ctx.afterInput$.subscribe(() => {
+        ctx.setRef({ name: ctx.P.n$.value + '' });
+      });
+    },
+  });
+
+  const a = A.create('root');
+  expect(a.ref.name).toBe('1');
+
+  a.update({ n: 2 });
+  expect(a.ref.name).toBe('2');
+
+  a.dispose();
+});
+
+it('Hierarchy Components Ref', () => {
+  const timelines: string[] = [];
+
+  const B = defineComponent<{ b: number }, { name: string }>({
+    defaultProps: { b: 1 },
+    setup: ctx => {
+      ctx.P.b$.subscribe(b => {
+        ctx.setRef({ name: b + '' });
+      });
+    },
+  });
+
+  const A = defineComponent({
+    defaultProps: { a: 1 },
+    setup: ctx => {
+      let bIns: IInstanceType<typeof B> | null = null;
+
+      ctx.afterUpdate$.subscribe(() => {
+        timelines.push(`a afterUpdate: a=${ctx.P.a$.value}, bKey=${bIns?.key}, bRef=${bIns?.ref?.name}`);
+      });
+
+      return combineLatest([ctx.P.a$]).pipe(
+        map(([a]) => {
+          if (a <= 0) return [];
+          return [blueprint(B, { b: a }, Math.floor(a) + '', ins => (bIns = ins))];
+        })
+      );
+    },
+  });
+
+  const root = A.create('root');
+
+  root.update({ a: 1.1 });
+  root.update({ a: 2 });
+  root.update({ a: 0 });
+  root.dispose();
+
+  expect(timelines).toMatchInlineSnapshot(`
+    [
+      "a afterUpdate: a=1, bKey=1, bRef=1",
+      "a afterUpdate: a=1.1, bKey=1, bRef=1.1",
+      "a afterUpdate: a=2, bKey=2, bRef=2",
+      "a afterUpdate: a=0, bKey=undefined, bRef=undefined",
     ]
   `);
 });

@@ -29,7 +29,12 @@ export const DefaultOptions: IOptions<string, any> = {
   useVersionCheck: false,
 };
 
-export type Blueprint<P extends Record<string, any> = any> = { factory: IComponentFactory<P>; props: P; key: string };
+export type Blueprint<P extends Record<string, any> = any, R = void> = {
+  factory: IComponentFactory<P, R>;
+  props: P;
+  key: string;
+  onInstance?: (ins: IComponentInstance<P, R> | null) => void;
+};
 
 export type IContextDefinition<T> = string & { _type: T };
 
@@ -54,7 +59,7 @@ export type IPropSubjects<P extends Record<string, any>> = {
   [K in keyof P as K extends string ? `${K}$` : never]-?: BehaviorSubject<P[K]>;
 };
 
-export type IComponentContext<P extends Record<string, any>> = {
+export type IComponentContext<P extends Record<string, any>, R = void> = {
   key: string;
 
   P: IPropSubjects<P>;
@@ -70,29 +75,33 @@ export type IComponentContext<P extends Record<string, any>> = {
 
   createContext: ICreateContextCB;
   getContext: IGetContextCB;
+
+  setRef: (ref: R) => void;
 };
 
-export type ISetupCallback<P extends Record<string, any>> = (ctx: IComponentContext<P>) => Observable<Blueprint[]> | void;
+export type ISetupCallback<P extends Record<string, any>, R = void> = (ctx: IComponentContext<P, R>) => Observable<Blueprint[]> | void;
 
-export interface IComponentDefinition<P extends Record<string, any>> {
+export interface IComponentDefinition<P extends Record<string, any>, R = void> {
   defaultProps: Required<P>;
-  setup: ISetupCallback<Required<P>>;
+  setup: ISetupCallback<Required<P>, R>;
   options?: IOptionsMap<Required<P>>;
 }
 
-export interface IComponentFactory<P extends Record<string, any>> {
-  def: IComponentDefinition<P>;
+export interface IComponentFactory<P extends Record<string, any>, R = void> {
+  def: IComponentDefinition<P, R>;
   create: (
     key: string,
     props?: P,
-    parent?: IComponentInstance<any>,
-    beforeSetup?: (ctx: IComponentContext<P>) => void
-  ) => IComponentInstance<P>;
+    parent?: IComponentInstance<any, any>,
+    beforeSetup?: (ctx: IComponentContext<P, R>) => void
+  ) => IComponentInstance<P, R>;
 }
 
-export interface IComponentInstance<P extends Record<string, any>> {
+export interface IComponentInstance<P extends Record<string, any>, R = void> {
   key: string;
   parent?: IComponentInstance<any>;
+
+  ref: R;
 
   contextStore: Map<string, any>;
 
@@ -103,26 +112,33 @@ export interface IComponentInstance<P extends Record<string, any>> {
   dispose(): void;
 }
 
-export function blueprint<P extends Record<string, any>>(factory: IComponentFactory<P>, props: P, key: string): Blueprint {
+export type IInstanceType<T> = T extends IComponentFactory<infer P, infer R> ? IComponentInstance<P, R> : never;
+
+export function blueprint<P extends Record<string, any>, R = void>(
+  factory: IComponentFactory<P, R>,
+  props: P,
+  key: string,
+  onInstance?: (ins: IComponentInstance<P, R> | null) => void
+): Blueprint {
   // @ts-expect-error
-  return { factory, props, key };
+  return { factory, props, key, onInstance };
 }
 
 export function defineContext<T>(key: string): IContextDefinition<T> {
   return key as any;
 }
 
-export function defineComponent<P extends Record<string, any>>(def: IComponentDefinition<P>): IComponentFactory<P> {
+export function defineComponent<P extends Record<string, any>, R = void>(def: IComponentDefinition<P, R>): IComponentFactory<P, R> {
   type _IChild = Blueprint & { ins?: IComponentInstance<any> };
 
   const create = (
     key: string,
     initProps: P = def.defaultProps,
     parent?: IComponentInstance<any>,
-    beforeSetup?: (ctx: IComponentContext<P>) => void
+    beforeSetup?: (ctx: IComponentContext<P, R>) => void
   ) => {
     const contextStore = new Map<string, any>();
-    const instance: IComponentInstance<P> = { key, contextStore, parent, createContext, getContext, update, dispose };
+    const instance: IComponentInstance<P, R> = { key, ref: null as any, contextStore, parent, createContext, getContext, update, dispose };
 
     const propSubjects: IPropSubjects<P> = {} as any;
     const inputProps$ = new Subject<P>();
@@ -168,7 +184,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       }
     };
 
-    const ctx: IComponentContext<P> = {
+    const ctx: IComponentContext<P, R> = {
       key,
       P: propSubjects,
       afterUpdate$,
@@ -180,6 +196,7 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       select,
       takeUntilDispose,
       addSub,
+      setRef,
     };
 
     // setup
@@ -341,11 +358,13 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
       if (child.ins) {
         child.ins.dispose();
         child.ins = undefined;
+        child.onInstance?.(null);
       }
     }
 
     function _createChild(child: _IChild) {
       child.ins = child.factory.create(child.key, child.props, instance);
+      child.onInstance?.(child.ins);
     }
 
     function createContext<T>(key: IContextDefinition<T>, value: T) {
@@ -373,6 +392,10 @@ export function defineComponent<P extends Record<string, any>>(def: IComponentDe
     function update(newProps: P) {
       if (disposed) throw new Error('Already disposed');
       inputProps$.next(newProps);
+    }
+
+    function setRef(ref: R) {
+      instance.ref = ref;
     }
 
     function dispose() {
