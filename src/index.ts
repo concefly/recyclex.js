@@ -285,22 +285,19 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
 
             for (let i = 0; i < lastChildren.length; i++) {
               const _n = lastChildren[i];
-              _toUpdateKeys.add(_n.key);
-              if (!newChildMap.has(_n.key)) _toDisposeKeys.add(_n.key);
+              if (newChildMap.has(_n.key)) _toUpdateKeys.add(_n.key);
+              else _toDisposeKeys.add(_n.key);
             }
 
             for (let i = 0; i < nextChildren.length; i++) {
               const _n = nextChildren[i];
-              _toUpdateKeys.add(_n.key);
-              if (!oldChildMap.has(_n.key)) _toCreateKeys.add(_n.key);
+              if (oldChildMap.has(_n.key)) _toUpdateKeys.add(_n.key);
+              else _toCreateKeys.add(_n.key);
             }
 
             // 卸载
             for (const _k of _toDisposeKeys) {
-              _toUpdateKeys.delete(_k);
-
               const child = oldChildMap.get(_k)!;
-
               _disposeChild(child);
             }
 
