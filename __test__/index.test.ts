@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
-import { blueprint, defineComponent, defineContext, IInstanceType } from '../src';
-import { BehaviorSubject, combineLatest, map } from 'rxjs';
+import { blueprint, DefaultError$, defineComponent, defineContext, IInstanceType } from '../src';
+import { BehaviorSubject, combineLatest, map, take } from 'rxjs';
 
 it('Single Component Lifecycle', () => {
   const timelines: string[] = [];
@@ -470,4 +470,32 @@ it('Hierarchy Components Ref', () => {
       "a afterUpdate: a=0, bKey=undefined, bRef=undefined",
     ]
   `);
+});
+
+it('Infinity Loop', async () => {
+  return new Promise<void>(resolve => {
+    const A = defineComponent<{ n: number }, { name: string }>({
+      defaultProps: { n: 1 },
+      setup: ctx => {
+        const tick$ = new BehaviorSubject(0);
+
+        ctx.afterUpdate$.subscribe(() => {
+          tick$.next(tick$.value + 1);
+        });
+
+        return tick$.pipe(
+          map(() => {
+            return [];
+          })
+        );
+      },
+    });
+
+    DefaultError$.pipe(take(1)).subscribe(err => {
+      expect(err.message).toContain('Infinity loop detected');
+      resolve();
+    });
+
+    A.create('root');
+  });
 });

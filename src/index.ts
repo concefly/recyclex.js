@@ -114,6 +114,20 @@ export interface IComponentInstance<P extends Record<string, any>, R = void> {
 
 export type IInstanceType<T> = T extends IComponentFactory<infer P, infer R> ? IComponentInstance<P, R> : never;
 
+export class ComponentError<P extends Record<string, any>, R = void> extends Error {
+  constructor(
+    readonly instance: IComponentInstance<P, R>,
+    msg: string
+  ) {
+    super(msg);
+  }
+}
+
+export const DefaultError$ = new Subject<ComponentError<any, any>>();
+DefaultError$.subscribe(err => {
+  console.error(`Error in component ${err.instance.key}: ${err}`);
+});
+
 export function blueprint<P extends Record<string, any>, R = void>(
   factory: IComponentFactory<P, R>,
   props: P,
@@ -146,6 +160,8 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
     const afterInput$ = new Subject<Set<keyof P>>();
     const afterUpdate$ = new Subject<void>();
     const dispose$ = new Subject<void>();
+
+    let updating = false;
 
     const properties = Object.keys(def.defaultProps) as (keyof P)[];
 
@@ -259,13 +275,16 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
           if (changes) afterInput$.next(changes);
         })
       )
-      .subscribe();
+      .subscribe({ error: err => DefaultError$.next(new ComponentError(instance, err + '')) });
 
     const updateSub = blueprints$
       .pipe(
         scan(
           (lastInfo, nextChildren) => {
             if (disposed) throw new Error('Already disposed');
+            if (updating) throw new Error('Infinity loop detected');
+
+            updating = true;
 
             const { children: lastChildren, oldChildMap, newChildMap, commonKeys, _toDisposeKeys, _toCreateKeys, _toUpdateKeys } = lastInfo;
 
@@ -332,6 +351,10 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
 
             children = nextChildren;
             lastInfo.children = nextChildren;
+
+            afterUpdate$.next();
+
+            updating = false;
             return lastInfo;
           },
           {
@@ -343,10 +366,9 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
             _toCreateKeys: new Set<string>(),
             _toUpdateKeys: new Set<string>(),
           }
-        ),
-        tap(() => afterUpdate$.next())
+        )
       )
-      .subscribe();
+      .subscribe({ error: err => DefaultError$.next(new ComponentError(instance, err + '')) });
 
     // blueprint 订阅完成后，立刻触发一次 afterInput，因为 P 是 BehaviorSubject, 会在订阅时立刻发送一次
     afterInput$.next(new Set(properties));
