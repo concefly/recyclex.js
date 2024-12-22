@@ -13,24 +13,10 @@ import {
   takeUntil,
   MonoTypeOperatorFunction,
   Subscription,
-  switchMap,
-  shareReplay,
-  last,
 } from 'rxjs';
-
-export type IOptions<_K, V> = {
-  isEqual: (a?: V, b?: V) => boolean;
-  getVersion: (v: V) => string | number;
-  useVersionCheck: boolean;
-};
+import { DefaultOptions, IOptions } from './config';
 
 export type IOptionsMap<P> = { [K in keyof P]?: Partial<IOptions<K, P[K]>> };
-
-export const DefaultOptions: IOptions<string, any> = {
-  isEqual: (a, b) => a === b,
-  getVersion: () => 0,
-  useVersionCheck: false,
-};
 
 export type Blueprint<P extends Record<string, any> = any, R = void> = {
   factory: IComponentFactory<P, R>;
@@ -450,80 +436,4 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
   };
 
   return { def, create };
-}
-
-export function parallel<T, R>(keyBy: (v: T) => string, evaluator: (data: T) => Promise<R>): OperatorFunction<T[], R[]> {
-  type _ICtx = {
-    streams: Map<string, { subject: BehaviorSubject<T>; ob: Observable<R> }>;
-    orderedObs: Observable<R>[];
-  };
-
-  return src$ => {
-    return src$.pipe(
-      scan<T[], _ICtx>(
-        (lastInfo, list) => {
-          const oldGroups = lastInfo.streams;
-          const newGroups = new Map<string, T>();
-
-          const listEntries = list.map(v => [keyBy(v), v] as const);
-
-          for (const [k, v] of listEntries) {
-            if (newGroups.has(k)) throw new Error('keyBy must be unique, found duplicate key: ' + k);
-            newGroups.set(k, v);
-          }
-
-          const toRemoveKeys = new Set<string>();
-          const toCreateKeys = new Set<string>();
-          const toUpdateKeys = new Set<string>();
-
-          for (const k of oldGroups.keys()) {
-            if (!newGroups.has(k)) toRemoveKeys.add(k);
-            else toUpdateKeys.add(k);
-          }
-
-          for (const k of newGroups.keys()) {
-            if (!oldGroups.has(k)) toCreateKeys.add(k);
-          }
-
-          const newInfo: _ICtx = { streams: new Map(), orderedObs: [] };
-
-          // remove old
-          for (const k of toRemoveKeys) {
-            const { subject } = oldGroups.get(k)!;
-            subject.complete();
-          }
-
-          // 按顺序创建 or 更新
-          for (const [k, v] of listEntries) {
-            // create
-            if (toCreateKeys.has(k)) {
-              const subject = new BehaviorSubject<T>(v);
-              const ob = subject.pipe(switchMap(evaluator), shareReplay({ bufferSize: 1, refCount: true }));
-              newInfo.streams.set(k, { subject, ob });
-              newInfo.orderedObs.push(ob);
-            }
-
-            // update
-            else if (toUpdateKeys.has(k)) {
-              const { subject, ob } = oldGroups.get(k)!;
-              subject.next(v);
-
-              newInfo.streams.set(k, { subject, ob });
-              newInfo.orderedObs.push(ob);
-            }
-          }
-
-          return newInfo;
-        },
-        { streams: new Map(), orderedObs: [] }
-      ),
-      switchMap(({ orderedObs }) => {
-        return combineLatest(orderedObs).pipe(
-          tap(reults => {
-            console.log('@@@', 'reults ->', reults);
-          })
-        );
-      })
-    );
-  };
 }
