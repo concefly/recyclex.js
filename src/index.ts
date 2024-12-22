@@ -16,6 +16,9 @@ import {
 } from 'rxjs';
 import { DefaultOptions, IOptions } from './config';
 
+export * from './config';
+export * from './core';
+
 export type IOptionsMap<P> = { [K in keyof P]?: Partial<IOptions<K, P[K]>> };
 
 export type Blueprint<P extends Record<string, any> = any, R = void> = {

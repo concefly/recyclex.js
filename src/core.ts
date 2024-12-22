@@ -1,4 +1,4 @@
-import { OperatorFunction, Observable, scan, map, Subject, shareReplay, filter, BehaviorSubject } from 'rxjs';
+import { OperatorFunction, Observable, scan, map, Subject, shareReplay, filter, BehaviorSubject, pipe } from 'rxjs';
 import { DefaultOptions, IOptions } from './config';
 
 type ExtractFirst<T> = T extends [infer U, any] ? U : never;
@@ -6,7 +6,7 @@ type ExtractSecond<T> = T extends [any, infer U] ? U : never;
 
 export function incremental<T, LS extends [key: string, value: any][]>(
   split: (src: T) => LS,
-  options?: Record<string, Partial<IOptions<string, any>>>
+  options?: Record<string, Partial<IOptions<string, any>>> | ((key: string) => Partial<IOptions<string, any>>)
 ): OperatorFunction<T, { [K in keyof LS]: Observable<ExtractSecond<LS[K]>> }> {
   return src$ => {
     let lastStreams: Map<string, { subject: Subject<any>; ob: Observable<any> }> = new Map();
@@ -58,9 +58,20 @@ export function incremental<T, LS extends [key: string, value: any][]>(
                 const ob = subject.pipe(
                   scan(
                     (lastInfos, newVal) => {
-                      const getVersion = options?.[key]?.getVersion ?? DefaultOptions.getVersion;
-                      const isEqual = options?.[key]?.isEqual ?? DefaultOptions.isEqual;
-                      const useVersionCheck = options?.[key]?.useVersionCheck ?? DefaultOptions.useVersionCheck;
+                      const getVersion =
+                        (options ? (typeof options === 'function' ? options(key).getVersion : options[key]?.getVersion) : undefined) ??
+                        DefaultOptions.getVersion;
+
+                      const isEqual =
+                        (options ? (typeof options === 'function' ? options(key).isEqual : options[key]?.isEqual) : undefined) ??
+                        DefaultOptions.isEqual;
+
+                      const useVersionCheck =
+                        (options
+                          ? typeof options === 'function'
+                            ? options(key).useVersionCheck
+                            : options[key]?.useVersionCheck
+                          : undefined) ?? DefaultOptions.useVersionCheck;
 
                       let toCompareA: any;
                       let toCompareB: any;
@@ -120,4 +131,18 @@ export function incremental<T, LS extends [key: string, value: any][]>(
       };
     });
   };
+}
+
+export function incrementalList<T>(
+  keyBy: (item: T) => string,
+  options?: Partial<IOptions<string, T>>
+): OperatorFunction<T[], Observable<T>[]> {
+  return pipe(
+    incremental(
+      list => {
+        return list.map(item => [keyBy(item), item] as const);
+      },
+      () => options || DefaultOptions
+    )
+  );
 }
