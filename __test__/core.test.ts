@@ -83,8 +83,8 @@ it('object list', async () => {
       { key: 'b', v: 2 },
     ],
     [
-      { key: 'a', v: 3 },
       { key: 'b', v: 3 },
+      { key: 'c', v: 3 },
     ],
   ]).pipe(
     incrementalList(d => d.key),
@@ -96,18 +96,18 @@ it('object list', async () => {
   const timeline: string[] = [];
 
   data$.subscribe({
-    next: v => timeline.push(JSON.stringify(v)),
+    next: list => timeline.push(list.map(v => `${v.key}.${v.v}`).join('; ')),
     complete: () => timeline.push('complete'),
     error: err => timeline.push('error: ' + err),
   });
 
   expect(timeline).toMatchInlineSnapshot(`
     [
-      "[{"key":"a","v":1},{"key":"b","v":1}]",
-      "[{"key":"a","v":2},{"key":"b","v":1}]",
-      "[{"key":"a","v":2},{"key":"b","v":2}]",
-      "[{"key":"a","v":3},{"key":"b","v":2}]",
-      "[{"key":"a","v":3},{"key":"b","v":3}]",
+      "a.1; b.1",
+      "a.2; b.1",
+      "a.2; b.2",
+      "a.2; b.3",
+      "b.3; c.3",
       "complete",
     ]
   `);
