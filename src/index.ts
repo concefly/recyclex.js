@@ -17,7 +17,6 @@ import {
 import { DefaultOptions, IOptions } from './config';
 
 export * from './config';
-export * from './core';
 
 export type IOptionsMap<P> = { [K in keyof P]?: Partial<IOptions<K, P[K]>> };
 
@@ -439,4 +438,88 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
   };
 
   return { def, create };
+}
+
+export function incremental<T extends Record<string, any>, R>(
+  defaultItem: Required<T>,
+  keyBy: (item: T) => string,
+  mapper: (obs: IPropSubjects<Required<T>>) => Observable<R>
+): OperatorFunction<T[], R[]> {
+  const ccCtx = defineContext<{
+    onChange: (key: string, result: R) => void;
+  }>('cc');
+
+  const Worker = defineComponent<T>({
+    defaultProps: defaultItem,
+    setup: ctx => {
+      const cc = ctx.getContext(ccCtx);
+
+      return mapper(ctx.P).pipe(
+        map(result => {
+          cc.onChange(ctx.key, result);
+          return [];
+        })
+      );
+    },
+  });
+
+  const Root = defineComponent<{
+    list: T[];
+    onChange: (results: R[]) => void;
+  }>({
+    defaultProps: { list: [], onChange: () => {} },
+    setup: ctx => {
+      const indexMapper = new Map<string, number>();
+      let results: R[] = [];
+
+      ctx.createContext(ccCtx, {
+        onChange: (key, result) => {
+          const index = indexMapper.get(key)!;
+          results[index] = result;
+        },
+      });
+
+      ctx.addSub(
+        ctx.afterUpdate$
+          .pipe(
+            map(() => {
+              ctx.P.onChange$.value(results);
+            })
+          )
+          .subscribe()
+      );
+
+      return ctx.P.list$.pipe(
+        map(list => {
+          indexMapper.clear();
+          results = [];
+
+          return list.map((item, index) => {
+            const key = keyBy(item);
+            indexMapper.set(key, index);
+
+            return blueprint(Worker, item, key);
+          });
+        })
+      );
+    },
+  });
+
+  return src$ =>
+    new Observable<R[]>(sub => {
+      const root = Root.create('root');
+
+      const onChange = (results: R[]) => {
+        sub.next(results);
+      };
+
+      const ss = src$.subscribe({
+        next: list => root.update({ list, onChange }),
+      });
+
+      return () => {
+        ss.unsubscribe();
+        root.dispose();
+      };
+    });
 }
