@@ -13,6 +13,7 @@ import {
   takeUntil,
   MonoTypeOperatorFunction,
   Subscription,
+  startWith,
 } from 'rxjs';
 
 export type IOptions<_K, V> = {
@@ -224,42 +225,40 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
 
     const inputSub = inputProps$
       .pipe(
-        scan(
-          (lastInfos, cur) => {
-            const newInfos: Record<string, { value: any; version: any; changed: boolean }> = {};
+        startWith(initProps), // 初始化输入，给 infos 填充初始值
+        scan<P, Record<string, { value: any; version: any; changed: boolean }>>((infos, cur) => {
+          for (const key of properties as string[]) {
+            const newVal = cur[key] ?? def.defaultProps[key];
 
-            for (const key of properties as string[]) {
-              const newVal = cur[key] ?? def.defaultProps[key];
+            const getVersion = def.options?.[key]?.getVersion ?? DefaultOptions.getVersion;
+            const isEqual = def.options?.[key]?.isEqual ?? DefaultOptions.isEqual;
+            const useVersionCheck = def.options?.[key]?.useVersionCheck ?? DefaultOptions.useVersionCheck;
 
-              const getVersion = def.options?.[key]?.getVersion ?? DefaultOptions.getVersion;
-              const isEqual = def.options?.[key]?.isEqual ?? DefaultOptions.isEqual;
-              const useVersionCheck = def.options?.[key]?.useVersionCheck ?? DefaultOptions.useVersionCheck;
-
-              if (!lastInfos[key]) {
-                newInfos[key] = { value: newVal, version: useVersionCheck ? getVersion(newVal) : undefined, changed: true };
-                continue;
-              }
-
-              let toCompareA: any;
-              let toCompareB: any;
-              let newVersion: any = undefined;
-
-              if (useVersionCheck) {
-                toCompareA = lastInfos[key].version;
-                newVersion = getVersion(newVal);
-                toCompareB = newVersion;
-              } else {
-                toCompareA = lastInfos[key].value;
-                toCompareB = newVal;
-              }
-
-              newInfos[key] = { value: newVal, version: newVersion, changed: !isEqual(toCompareA, toCompareB) };
+            if (!infos[key]) {
+              infos[key] = { value: newVal, version: useVersionCheck ? getVersion(newVal) : undefined, changed: false };
+              continue;
             }
 
-            return newInfos;
-          },
-          {} as Record<string, { value: any; version: any; changed: boolean }>
-        ),
+            let toCompareA: any;
+            let toCompareB: any;
+            let newVersion: any = undefined;
+
+            if (useVersionCheck) {
+              toCompareA = infos[key].version;
+              newVersion = getVersion(newVal);
+              toCompareB = newVersion;
+            } else {
+              toCompareA = infos[key].value;
+              toCompareB = newVal;
+            }
+
+            infos[key].value = newVal;
+            infos[key].version = newVersion;
+            infos[key].changed = !isEqual(toCompareA, toCompareB);
+          }
+
+          return infos;
+        }, {}),
         map(infos => {
           const entries = Object.entries(infos).filter(([_, info]) => info.changed);
           if (entries.length === 0) return;

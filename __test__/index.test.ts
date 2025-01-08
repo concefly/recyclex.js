@@ -499,3 +499,22 @@ it('Infinity Loop', async () => {
     A.create('root');
   });
 });
+
+it('Init changed keys', () => {
+  const list: number[] = [];
+
+  const A = defineComponent<{ n: number }>({
+    defaultProps: { n: 1 },
+    setup: ctx => {
+      ctx.P.n$.subscribe(n => {
+        list.push(n);
+      });
+    },
+  });
+
+  const a = A.create('root');
+  a.update({ n: 1 });
+  a.dispose();
+
+  expect(list).toEqual([1]);
+});
