@@ -37,7 +37,7 @@ export type Blueprint<P extends Record<string, any> = any, R = void> = {
   onInstance?: (ins: IComponentInstance<P, R> | null) => void;
 };
 
-export type IContextDefinition<T> = string & { _type: T };
+export type ITokenDefinition<T> = string & { _type: T };
 
 export type IController = {
   onInit?(): any;
@@ -53,8 +53,8 @@ export type IOnBeforeUpdateCB<P extends Record<string, any>> = (props: P, change
 export type IOnUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => Blueprint[] | void;
 export type IOnAfterUpdateCB<P extends Record<string, any>> = (props: P, changes: Map<string, any>) => void;
 
-export type ICreateContextCB = <T>(key: IContextDefinition<T>, value: T) => T;
-export type IGetContextCB = <T>(key: IContextDefinition<T>) => T;
+export type IProvideCB = <T>(key: ITokenDefinition<T>, value: T) => T;
+export type IInjectCB = <T>(key: ITokenDefinition<T>) => T;
 
 export type IPropSubjects<P extends Record<string, any>> = {
   [K in keyof P as K extends string ? `${K}$` : never]-?: BehaviorSubject<P[K]>;
@@ -74,8 +74,8 @@ export type IComponentContext<P extends Record<string, any>, R = void> = {
 
   addSub: (...subs: Subscription[]) => void;
 
-  createContext: ICreateContextCB;
-  getContext: IGetContextCB;
+  provide: IProvideCB;
+  inject: IInjectCB;
 
   setRef: (ref: R) => void;
 };
@@ -106,8 +106,8 @@ export interface IComponentInstance<P extends Record<string, any>, R = void> {
 
   contextStore: Map<string, any>;
 
-  createContext: ICreateContextCB;
-  getContext: IGetContextCB;
+  provide: IProvideCB;
+  inject: IInjectCB;
 
   update(newProps: P): void;
   dispose(): void;
@@ -139,7 +139,7 @@ export function blueprint<P extends Record<string, any>, R = void>(
   return { factory, props, key, onInstance };
 }
 
-export function defineContext<T>(key: string): IContextDefinition<T> {
+export function defineToken<T>(key: string): ITokenDefinition<T> {
   return key as any;
 }
 
@@ -153,7 +153,7 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
     beforeSetup?: (ctx: IComponentContext<P, R>) => void
   ) => {
     const contextStore = new Map<string, any>();
-    const instance: IComponentInstance<P, R> = { key, ref: null as any, contextStore, parent, createContext, getContext, update, dispose };
+    const instance: IComponentInstance<P, R> = { key, ref: null as any, contextStore, parent, provide, inject, update, dispose };
 
     const propSubjects: IPropSubjects<P> = {} as any;
     const inputProps$ = new Subject<P>();
@@ -207,8 +207,8 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
       afterUpdate$,
       afterInput$,
       dispose$,
-      createContext,
-      getContext,
+      provide,
+      inject,
       bufferInput,
       select,
       takeUntilDispose,
@@ -385,13 +385,13 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
       child.onInstance?.(child.ins);
     }
 
-    function createContext<T>(key: IContextDefinition<T>, value: T) {
+    function provide<T>(key: ITokenDefinition<T>, value: T) {
       if (contextStore.has(key)) throw new Error('key already exists');
       contextStore.set(key, value);
       return value;
     }
 
-    function getContext(key: IContextDefinition<any>) {
+    function inject(key: ITokenDefinition<any>) {
       if (contextStore.has(key)) return contextStore.get(key);
 
       let cur = parent;

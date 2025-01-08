@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { blueprint, DefaultError$, defineComponent, defineContext, IInstanceType } from '../src';
+import { blueprint, DefaultError$, defineComponent, defineToken, IInstanceType } from '../src';
 import { BehaviorSubject, combineLatest, map, take } from 'rxjs';
 
 it('Single Component Lifecycle', () => {
@@ -183,14 +183,14 @@ it('Hierarchy Components Lifecycle', () => {
 it('Hierarchy Components Context', () => {
   const timelines: string[] = [];
 
-  const userContext = defineContext<BehaviorSubject<string>>('user');
+  const userToken = defineToken<BehaviorSubject<string>>('user');
 
   const B = defineComponent({
     defaultProps: { b: 1 },
     setup: ctx => {
       timelines.push(`b<${ctx.key}> init`);
 
-      const user = ctx.getContext(userContext);
+      const user = ctx.inject(userToken);
       timelines.push(`b<${ctx.key}> user: ${user.value}`);
 
       ctx.dispose$.subscribe(() => {
@@ -211,7 +211,7 @@ it('Hierarchy Components Context', () => {
     setup: ctx => {
       timelines.push(`a<${ctx.key}> init`);
 
-      const user = ctx.createContext(userContext, new BehaviorSubject('xxx'));
+      const user = ctx.provide(userToken, new BehaviorSubject('xxx'));
       timelines.push(`a<${ctx.key}> user: ${user.value}`);
 
       user.next('user_1');
@@ -254,16 +254,16 @@ it('Hierarchy Components Context', () => {
 it('Hierarchy Components Context Subscribe', async () => {
   const timelines: string[] = [];
 
-  const userContext = defineContext<BehaviorSubject<string>>('user');
+  const userToken = defineToken<BehaviorSubject<string>>('user');
 
   const B = defineComponent({
     defaultProps: {},
     setup: ctx => {
-      const userContextVal$ = ctx.getContext(userContext);
+      const user$ = ctx.inject(userToken);
 
-      return userContextVal$.pipe(
+      return user$.pipe(
         map(() => {
-          timelines.push(`b<${ctx.key}> update user: ${userContextVal$.value}`);
+          timelines.push(`b<${ctx.key}> update user: ${user$.value}`);
           return [];
         })
       );
@@ -273,11 +273,11 @@ it('Hierarchy Components Context Subscribe', async () => {
   const A = defineComponent({
     defaultProps: { a: 1 },
     setup: ctx => {
-      const userContextVal = ctx.createContext(userContext, new BehaviorSubject('xxx'));
+      const user = ctx.provide(userToken, new BehaviorSubject('xxx'));
 
       setTimeout(() => {
-        userContextVal.next('user_1');
-        userContextVal.next('user_2');
+        user.next('user_1');
+        user.next('user_2');
       }, 0);
 
       return combineLatest([ctx.P.a$]).pipe(
