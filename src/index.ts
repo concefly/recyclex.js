@@ -118,7 +118,8 @@ export type IInstanceType<T> = T extends IComponentFactory<infer P, infer R> ? I
 export class ComponentError<P extends Record<string, any>, R = void> extends Error {
   constructor(
     readonly instance: IComponentInstance<P, R>,
-    msg: string
+    readonly msg: string,
+    readonly innerError?: any
   ) {
     super(msg);
   }
@@ -126,7 +127,8 @@ export class ComponentError<P extends Record<string, any>, R = void> extends Err
 
 export const DefaultError$ = new Subject<ComponentError<any, any>>();
 DefaultError$.subscribe(err => {
-  console.error(`Error in component ${err.instance.key}: ${err}`);
+  console.error(`Error in component ${err.instance.key}: ${err.msg}`);
+  console.error(err.innerError);
 });
 
 export function blueprint<P extends Record<string, any>, R = void>(
@@ -274,7 +276,7 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
           if (changes) afterInput$.next(changes);
         })
       )
-      .subscribe({ error: err => DefaultError$.next(new ComponentError(instance, err + '')) });
+      .subscribe({ error: err => DefaultError$.next(new ComponentError(instance, err.message, err)) });
 
     const updateSub = blueprints$
       .pipe(
@@ -367,7 +369,7 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
           }
         )
       )
-      .subscribe({ error: err => DefaultError$.next(new ComponentError(instance, err + '')) });
+      .subscribe({ error: err => DefaultError$.next(new ComponentError(instance, err.message, err)) });
 
     // blueprint 订阅完成后，立刻触发一次 afterInput，因为 P 是 BehaviorSubject, 会在订阅时立刻发送一次
     afterInput$.next(new Set(properties));
