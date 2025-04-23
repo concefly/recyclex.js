@@ -169,7 +169,7 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
     const properties = Object.keys(def.defaultProps) as (keyof P)[];
 
     for (const k of properties) {
-      const v = initProps[k] ?? def.defaultProps[k];
+      const v = typeof initProps[k] !== 'undefined' ? initProps[k] : def.defaultProps[k];
 
       // @ts-expect-error
       propSubjects[`${k}$`] = new BehaviorSubject<any>(v);
@@ -230,7 +230,7 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
         startWith(initProps), // 初始化输入，给 infos 填充初始值
         scan<P, Record<string, { value: any; version: any; changed: boolean }>>((infos, cur) => {
           for (const key of properties as string[]) {
-            const newVal = cur[key] ?? def.defaultProps[key];
+            const newVal = typeof cur[key] !== 'undefined' ? cur[key] : def.defaultProps[key];
 
             const getVersion = def.options?.[key]?.getVersion ?? DefaultOptions.getVersion;
             const isEqual = def.options?.[key]?.isEqual ?? DefaultOptions.isEqual;
