@@ -101,6 +101,7 @@ export interface IComponentFactory<P extends Record<string, any>, R = void> {
 export interface IComponentInstance<P extends Record<string, any>, R = void> {
   key: string;
   parent?: IComponentInstance<any>;
+  children: IComponentInstance<any>[];
 
   ref: R;
 
@@ -155,7 +156,17 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
     beforeSetup?: (ctx: IComponentContext<P, R>) => void
   ) => {
     const contextStore = new Map<string, any>();
-    const instance: IComponentInstance<P, R> = { key, ref: null as any, contextStore, parent, provide, inject, update, dispose };
+    const instance: IComponentInstance<P, R> = {
+      key,
+      ref: null as any,
+      contextStore,
+      parent,
+      children: [],
+      provide,
+      inject,
+      update,
+      dispose,
+    };
 
     const propSubjects: IPropSubjects<P> = {} as any;
     const inputProps$ = new Subject<P>();
@@ -367,7 +378,11 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
             _toCreateKeys: new Set<string>(),
             _toUpdateKeys: new Set<string>(),
           }
-        )
+        ),
+        tap(info => {
+          const insList = info.children.filter(c => c.ins).map(c => c.ins!);
+          instance.children = insList;
+        })
       )
       .subscribe({ error: err => DefaultError$.next(new ComponentError(instance, err.message, err)) });
 
@@ -441,6 +456,12 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
       dispose$.complete();
 
       children.length = 0;
+
+      instance.ref = null as any;
+      instance.parent = null as any;
+      instance.children = [];
+      instance.contextStore.clear();
+
       disposed = true;
     }
 
