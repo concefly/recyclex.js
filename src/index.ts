@@ -30,11 +30,15 @@ export const DefaultOptions: IOptions<string, any> = {
   useVersionCheck: false,
 };
 
+export type IOnInstanceCallback<P extends Record<string, any>, R = void> =
+  | ((ins: IComponentInstance<P, R> | null) => void)
+  | Subject<IComponentInstance<P, R> | null>;
+
 export type Blueprint<P extends Record<string, any> = any, R = void> = {
   factory: IComponentFactory<P, R>;
   props: P;
   key: string;
-  onInstance?: (ins: IComponentInstance<P, R> | null) => void;
+  onInstance?: IOnInstanceCallback<P, R>;
 };
 
 export type ITokenDefinition<T> = string & { _type: T };
@@ -136,7 +140,7 @@ export function blueprint<P extends Record<string, any>, R = void>(
   factory: IComponentFactory<P, R>,
   props: P,
   key: string,
-  onInstance?: (ins: IComponentInstance<P, R> | null) => void
+  onInstance?: IOnInstanceCallback<P, R>
 ): Blueprint {
   // @ts-expect-error
   return { factory, props, key, onInstance };
@@ -393,13 +397,21 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
       if (child.ins) {
         child.ins.dispose();
         child.ins = undefined;
-        child.onInstance?.(null);
+        if (child.onInstance) _callOnInstance(child.onInstance, null);
       }
     }
 
     function _createChild(child: _IChild) {
       child.ins = child.factory.create(child.key, child.props, instance);
-      child.onInstance?.(child.ins);
+      if (child.onInstance) _callOnInstance(child.onInstance, child.ins);
+    }
+
+    function _callOnInstance(callback: IOnInstanceCallback<any, any>, ins: IComponentInstance<any, any> | null) {
+      if (typeof callback === 'function') {
+        callback(ins);
+      } else if (typeof callback.next === 'function') {
+        callback.next(ins);
+      }
     }
 
     function provide<T>(key: ITokenDefinition<T>, value: T) {
