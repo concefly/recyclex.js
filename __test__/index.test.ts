@@ -517,7 +517,7 @@ it('Init changed keys', () => {
 });
 
 it('ctx.select with mixed Observables', async () => {
-  const results: Array<[number, number, string]> = [];
+  const results: Array<any> = [];
 
   const external$ = new BehaviorSubject('x');
 
@@ -525,8 +525,8 @@ it('ctx.select with mixed Observables', async () => {
     defaultProps: { n: 1, m: 100 },
     setup: ctx => {
       ctx.addSub(
-        ctx.select([ctx.P.n$, ctx.P.m$, external$]).subscribe(([n, m, ext]) => {
-          results.push([n, m, ext]);
+        ctx.select([ctx.P.n$, external$, ctx.P.m$]).subscribe(([n, ext, m]) => {
+          results.push([n, ext, m]);
         })
       );
     },
@@ -543,10 +543,10 @@ it('ctx.select with mixed Observables', async () => {
   await new Promise(resolve => setTimeout(resolve, 10));
 
   expect(results).toEqual([
-    [1, 100, 'x'],
-    [2, 200, 'x'],
-    [2, 200, 'y'],
-    [3, 300, 'y'],
-    [3, 300, 'z'],
+    [1, 'x', 100],
+    [2, 'x', 200],
+    [2, 'y', 200],
+    [3, 'y', 300],
+    [3, 'z', 300],
   ]);
 });

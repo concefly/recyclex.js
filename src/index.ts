@@ -205,14 +205,29 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
       const vSet = new Set(Object.values(propSubjects));
 
       const obs_from_props = list.filter(d => vSet.has(d)) as Observable<any>[];
+      if (obs_from_props.length === 0) return combineLatest(list) as Observable<T>;
+
       const obs_from_others = list.filter(d => !vSet.has(d)) as Observable<any>[];
 
       const bufferedObs = combineLatest(obs_from_props).pipe(bufferInput());
       if (obs_from_others.length === 0) return bufferedObs as any as Observable<T>;
 
+      const indexes_from_props = obs_from_props.map(d => list.indexOf(d));
+      const indexes_from_others = obs_from_others.map(d => list.indexOf(d));
+
       return combineLatest([bufferedObs, ...obs_from_others]).pipe(
         map(([props, ...rest]) => {
-          return props.concat(...rest) as any as T;
+          const arr: any[] = Array(list.length);
+
+          for (let i = 0; i < indexes_from_props.length; i++) {
+            arr[indexes_from_props[i]] = props[i];
+          }
+
+          for (let i = 0; i < indexes_from_others.length; i++) {
+            arr[indexes_from_others[i]] = rest[i];
+          }
+
+          return arr as any as T;
         })
       );
     };
