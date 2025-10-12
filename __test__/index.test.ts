@@ -18,7 +18,7 @@ it('Single Component Lifecycle', () => {
         timelines.push('a dispose');
       });
 
-      return combineLatest([ctx.P.n$]).pipe(
+      return ctx.select([ctx.P.n$]).pipe(
         map(([n]) => {
           timelines.push(`a update: n=${n}`);
           return [];
@@ -63,7 +63,7 @@ it('Single Component Lifecycle with initProps', () => {
         timelines.push('a dispose');
       });
 
-      return combineLatest([ctx.P.n$]).pipe(
+      return ctx.select([ctx.P.n$]).pipe(
         map(([n]) => {
           timelines.push(`a update: n=${n}`);
           return [];
@@ -122,7 +122,7 @@ it('Hierarchy Components Lifecycle', () => {
         timelines.push(`b<${ctx.key}> dispose`);
       });
 
-      return combineLatest([ctx.P.b$]).pipe(
+      return ctx.select([ctx.P.b$]).pipe(
         map(([n]) => {
           timelines.push(`b<${ctx.key}> update: b=${n}`);
           return [];
@@ -140,7 +140,7 @@ it('Hierarchy Components Lifecycle', () => {
         timelines.push(`a<${ctx.key}> dispose`);
       });
 
-      return combineLatest([ctx.P.a$]).pipe(
+      return ctx.select([ctx.P.a$]).pipe(
         map(([a]) => {
           timelines.push(`a<${ctx.key}> update: a=${a}`);
 
@@ -197,7 +197,7 @@ it('Hierarchy Components Context', () => {
         timelines.push(`b<${ctx.key}> dispose`);
       });
 
-      return combineLatest([ctx.P.b$]).pipe(
+      return ctx.select([ctx.P.b$]).pipe(
         map(() => {
           timelines.push(`b<${ctx.key}> update user: ${user.value}`);
           return [];
@@ -220,7 +220,7 @@ it('Hierarchy Components Context', () => {
         timelines.push(`a<${ctx.key}> dispose`);
       });
 
-      return combineLatest([ctx.P.a$]).pipe(
+      return ctx.select([ctx.P.a$]).pipe(
         map(([a]) => {
           if (a === 2) {
             user.next('user_2');
@@ -280,7 +280,7 @@ it('Hierarchy Components Context Subscribe', async () => {
         user.next('user_2');
       }, 0);
 
-      return combineLatest([ctx.P.a$]).pipe(
+      return ctx.select([ctx.P.a$]).pipe(
         map(() => {
           return [blueprint(B, {}, '1')];
         })
@@ -309,7 +309,7 @@ it('Missing Key', () => {
   const A = defineComponent<{ n: number; k?: string }>({
     defaultProps: { n: 1, k: '_default_' },
     setup: ctx => {
-      return combineLatest([ctx.P.n$, ctx.P.k$]).pipe(
+      return ctx.select([ctx.P.n$, ctx.P.k$]).pipe(
         map(([n, k]) => {
           timelines.push(`a update: n=${n}, k=${k}`);
           return [];
@@ -329,11 +329,8 @@ it('Missing Key', () => {
   expect(timelines).toMatchInlineSnapshot(`
     [
       "a update: n=1, k=_default_",
-      "a update: n=2, k=_default_",
       "a update: n=2, k=a",
-      "a update: n=3, k=a",
       "a update: n=3, k=_default_",
-      "a update: n=4, k=_default_",
       "a update: n=4, k=b",
     ]
   `);
@@ -446,7 +443,7 @@ it('Hierarchy Components Ref', () => {
         timelines.push(`a afterUpdate: a=${ctx.P.a$.value}, bKey=${bIns?.key}, bRef=${bIns?.ref?.name}`);
       });
 
-      return combineLatest([ctx.P.a$]).pipe(
+      return ctx.select([ctx.P.a$]).pipe(
         map(([a]) => {
           if (a <= 0) return [];
           return [blueprint(B, { b: a }, Math.floor(a) + '', ins => (bIns = ins))];
@@ -517,4 +514,39 @@ it('Init changed keys', () => {
   a.dispose();
 
   expect(list).toEqual([1]);
+});
+
+it('ctx.select with mixed Observables', async () => {
+  const results: Array<[number, number, string]> = [];
+
+  const external$ = new BehaviorSubject('x');
+
+  const A = defineComponent<{ n: number; m: number }>({
+    defaultProps: { n: 1, m: 100 },
+    setup: ctx => {
+      ctx.addSub(
+        ctx.select([ctx.P.n$, ctx.P.m$, external$]).subscribe(([n, m, ext]) => {
+          results.push([n, m, ext]);
+        })
+      );
+    },
+  });
+
+  const a = A.create('root');
+  a.update({ n: 2, m: 200 });
+  external$.next('y');
+  a.update({ n: 3, m: 300 });
+  external$.next('z');
+  a.dispose();
+
+  // Wait for all async emissions to flush
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  expect(results).toEqual([
+    [1, 100, 'x'],
+    [2, 200, 'x'],
+    [2, 200, 'y'],
+    [3, 300, 'y'],
+    [3, 300, 'z'],
+  ]);
 });

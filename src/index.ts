@@ -201,13 +201,20 @@ export function defineComponent<P extends Record<string, any>, R = void>(def: IC
       return fn;
     };
 
-    const select = <T extends readonly unknown[]>(list: readonly [...ObservableInputTuple<T>]) => {
+    const select = <T extends readonly unknown[]>(list: readonly [...ObservableInputTuple<T>]): Observable<T> => {
       const vSet = new Set(Object.values(propSubjects));
-      const isAllProp = list.every(v => vSet.has(v as any));
 
-      if (!isAllProp) throw new Error('select only support properties stream');
+      const obs_from_props = list.filter(d => vSet.has(d)) as Observable<any>[];
+      const obs_from_others = list.filter(d => !vSet.has(d)) as Observable<any>[];
 
-      return combineLatest(list).pipe(bufferInput());
+      const bufferedObs = combineLatest(obs_from_props).pipe(bufferInput());
+      if (obs_from_others.length === 0) return bufferedObs as any as Observable<T>;
+
+      return combineLatest([bufferedObs, ...obs_from_others]).pipe(
+        map(([props, ...rest]) => {
+          return props.concat(...rest) as any as T;
+        })
+      );
     };
 
     const takeUntilDispose = <T>() => takeUntil<T>(dispose$);
